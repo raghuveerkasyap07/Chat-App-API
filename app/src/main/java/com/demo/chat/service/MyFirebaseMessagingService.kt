@@ -16,7 +16,10 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         val title = remoteMessage.notification?.title ?: remoteMessage.data["title"] ?: "New Message"
         val body = remoteMessage.notification?.body ?: remoteMessage.data["body"] ?: "You have a new chat message"
         val chatId = remoteMessage.data["chatId"]?.toIntOrNull() ?: 0
+        val imageUrl = remoteMessage.notification?.imageUrl?.toString()
+            ?: remoteMessage.data["imageUrl"]
+            ?: remoteMessage.data["mediaUrl"]
 
-        NotificationHelper.showChatNotification(this, title, body, chatId)
+        NotificationHelper.showChatNotification(this, title, body, chatId, imageUrl)
     }
 }
