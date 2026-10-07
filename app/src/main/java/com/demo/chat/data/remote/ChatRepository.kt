@@ -177,7 +177,13 @@ class ChatRepository(
 
             if (response.isSuccessful) {
                 val body = response.body()
-                val chatMessage = parseSingleObject(body?.data, ChatMessage::class.java)
+                val dataObj = body?.data
+                val messageElement = if (dataObj?.isJsonObject == true && dataObj.asJsonObject.has("message") && dataObj.asJsonObject.get("message").isJsonObject) {
+                    dataObj.asJsonObject.get("message")
+                } else {
+                    dataObj
+                }
+                val chatMessage = parseSingleObject(messageElement, ChatMessage::class.java)
                     ?: ChatMessage(
                         chatId = chatId,
                         senderId = sessionManager.getUserId(),
@@ -194,6 +200,25 @@ class ChatRepository(
             Result.failure(e)
         }
     }
+
+    /**
+     * PUT /api/chats/{chatId}/seen: Mark all messages in chat as seen (REST fallback).
+     */
+    suspend fun markChatSeen(chatId: Int): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val response = apiService.markChatSeen(chatId)
+            if (response.isSuccessful) {
+                Result.success(true)
+            } else {
+                val errorMsg = parseErrorMessage(response.errorBody()?.string())
+                Result.failure(Exception("Failed to mark chat as seen (${response.code()}): $errorMsg"))
+            }
+        } catch (e: Exception) {
+            ChatLogger.e(TAG, "Exception marking chat as seen", e)
+            Result.failure(e)
+        }
+    }
+
 
     // --- Parsing Helpers ---
 

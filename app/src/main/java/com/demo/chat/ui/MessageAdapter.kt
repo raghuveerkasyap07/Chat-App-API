@@ -77,9 +77,63 @@ class MessageAdapter(
                 binding.ivAttachment.visibility = View.GONE
             }
 
-            // Timestamp
+            // Timestamp & Status Ticks
             binding.tvTimestamp.text = message.createdAt ?: ""
+
+            if (isOutgoing) {
+                binding.tvStatusTicks.visibility = View.VISIBLE
+                when {
+                    message.isSeen -> {
+                        binding.tvStatusTicks.text = "✓✓"
+                        binding.tvStatusTicks.setTextColor(android.graphics.Color.parseColor("#34B7F1"))
+                    }
+                    message.isDelivered -> {
+                        binding.tvStatusTicks.text = "✓✓"
+                        binding.tvStatusTicks.setTextColor(android.graphics.Color.parseColor("#888888"))
+                    }
+                    else -> {
+                        binding.tvStatusTicks.text = "✓"
+                        binding.tvStatusTicks.setTextColor(android.graphics.Color.parseColor("#888888"))
+                    }
+                }
+            } else {
+                binding.tvStatusTicks.visibility = View.GONE
+            }
         }
+    }
+
+    fun appendMessageIfNotExists(message: ChatMessage) {
+        val current = currentList.toMutableList()
+        val existingIndex = current.indexOfFirst {
+            (message.id != null && it.id == message.id) ||
+            (it.id == null && it.message == message.message && it.senderId == message.senderId)
+        }
+        if (existingIndex != -1) {
+            current[existingIndex] = message
+        } else {
+            current.add(message)
+        }
+        submitList(current)
+    }
+
+    fun updateStatus(messageId: Int, status: String) {
+        val current = currentList.toMutableList()
+        val index = current.indexOfFirst { it.id == messageId }
+        if (index != -1) {
+            current[index] = current[index].copy(status = status)
+            submitList(current)
+        }
+    }
+
+    fun updateAllSentStatus(status: String) {
+        val current = currentList.map { msg ->
+            if (msg.isSentBy(currentUserId) && !msg.isSeen) {
+                msg.copy(status = status)
+            } else {
+                msg
+            }
+        }
+        submitList(current)
     }
 
     companion object MessageDiffCallback : DiffUtil.ItemCallback<ChatMessage>() {

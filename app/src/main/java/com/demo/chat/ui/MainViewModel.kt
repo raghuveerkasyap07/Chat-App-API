@@ -7,14 +7,17 @@ import com.demo.chat.sdk.core.ChatClient
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainViewModel(val chatClient: ChatClient) : ViewModel() {
 
-    // Connection state from WebSocket manager
-    val connectionState: StateFlow<ConnectionState> = chatClient.connectionState
+    // Connection state from Socket.IO client manager
+    val connectionState: StateFlow<ConnectionState> = chatClient.socketIOConnectionState
 
-    // Live incoming messages from WebSocket
-    val incomingMessages: SharedFlow<ChatMessage> = chatClient.messageStream
+    // Live incoming messages from Socket.IO
+    val incomingMessages: SharedFlow<ChatMessage> = chatClient.socketIOMessageStream
 
     // Message list state for UI
     private val _messageList = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -40,6 +43,14 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
     private val _registeredUsers = MutableStateFlow<List<User>>(emptyList())
     val registeredUsers: StateFlow<List<User>> = _registeredUsers.asStateFlow()
 
+    // Partner typing state
+    private val _partnerTypingText = MutableStateFlow<String?>(null)
+    val partnerTypingText: StateFlow<String?> = _partnerTypingText.asStateFlow()
+
+    // Partner presence state
+    private val _partnerIsOnline = MutableStateFlow<Boolean?>(null)
+    val partnerIsOnline: StateFlow<Boolean?> = _partnerIsOnline.asStateFlow()
+
     val isLoggedIn: Boolean
         get() = chatClient.isLoggedIn()
 
@@ -47,12 +58,39 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
         get() = chatClient.getCachedUser()
 
     init {
-        // Collect real-time messages from WebSocket and append to state
+        // 1. Collect real-time messages from Socket.IO and append to state
+        viewModelScope.launch {
+            chatClient.socketIOMessageStream.collect { msg ->
+                val currentChatId = _activeChatId.value
+                val currentUserId = chatClient.session.getUserId()
+
+                if (msg.chatId == currentChatId) {
+                    _messageList.update { current ->
+                        val existingIndex = current.indexOfFirst {
+                            (msg.id != null && it.id == msg.id) ||
+                            (it.id == null && it.message == msg.message && it.senderId == msg.senderId)
+                        }
+                        if (existingIndex != -1) {
+                            current.toMutableList().apply { set(existingIndex, msg) }
+                        } else {
+                            current + msg
+                        }
+                    }
+
+                    // Acknowledge delivery & seen if received from partner while chat is active
+                    if (msg.senderId != currentUserId && msg.id != null) {
+                        chatClient.markMessageDelivered(currentChatId, msg.id)
+                        chatClient.markMessageSeen(currentChatId, msg.id)
+                    }
+                }
+            }
+        }
+
+        // 2. Also collect legacy socket stream if present
         viewModelScope.launch {
             chatClient.messageStream.collect { msg ->
                 if (msg.chatId == _activeChatId.value) {
                     _messageList.update { current ->
-                        // Deduplicate if already present with same id or matching local pending message
                         val existingIndex = current.indexOfFirst {
                             (msg.id != null && it.id == msg.id) ||
                             (it.id == null && it.message == msg.message && it.senderId == msg.senderId)
@@ -66,14 +104,69 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
                 }
             }
         }
+
+        // 3. Collect delivery & read receipts (message_delivered & message_seen)
+        viewModelScope.launch {
+            chatClient.receiptEvents.collect { receipt ->
+                val currentChatId = _activeChatId.value.toString()
+                if (receipt.chatId == currentChatId) {
+                    _messageList.update { current ->
+                        current.map { msg ->
+                            val isOutgoing = msg.isSentBy(chatClient.session.getUserId())
+                            if (!isOutgoing) return@map msg
+
+                            val matches = if (receipt.messageId != null) {
+                                msg.id == receipt.messageId
+                            } else {
+                                true
+                            }
+
+                            if (matches) {
+                                msg.copy(status = receipt.status)
+                            } else {
+                                msg
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Collect partner typing indicators
+        viewModelScope.launch {
+            chatClient.typingEvents.collect { typing ->
+                val currentChatId = _activeChatId.value.toString()
+                if (typing.chatId == currentChatId) {
+                    if (typing.isTyping) {
+                        _partnerTypingText.value = "${typing.name.ifBlank { "Partner" }} is typing..."
+                    } else {
+                        _partnerTypingText.value = null
+                    }
+                }
+            }
+        }
+
+        // 5. Collect partner presence indicators
+        viewModelScope.launch {
+            chatClient.presenceEvents.collect { presence ->
+                val partnerId = _currentRecipient.value?.id
+                if (partnerId != null && presence.userId == partnerId) {
+                    _partnerIsOnline.value = presence.isOnline
+                }
+            }
+        }
     }
 
     /**
      * Load initial conversation on launch:
-     * Discovers active chats or contacts, connects WebSocket to real room ID, and loads history.
+     * Discovers active chats or contacts, connects Socket.IO, and joins the chat room.
      */
     fun loadInitialConversation() {
         viewModelScope.launch {
+            // Establish persistent Socket.IO connection
+            chatClient.connectSocketIO()
+            chatClient.connectWebSocket()
+
             _isLoading.value = true
             val convResult = chatClient.getConversations()
             _isLoading.value = false
@@ -84,20 +177,43 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
                     val myId = chatClient.session.getUserId()
                     val partner = firstChat.getDisplayPartner(myId)
                     _currentRecipient.value = partner
-                    _activeChatId.value = firstChat.id
-                    chatClient.connectWebSocket(firstChat.id)
+                    joinChat(firstChat.id)
                     loadMessages(firstChat.id)
                 } else {
-                    // No existing chats, connect with default and load contacts
-                    chatClient.connectWebSocket(_activeChatId.value)
+                    // No existing chats, load contacts
                     fetchRegisteredUsers()
                 }
             }.onFailure {
-                // If conversations failed to fetch, still connect WebSocket
-                chatClient.connectWebSocket(_activeChatId.value)
+                joinChat(_activeChatId.value)
                 loadMessages(_activeChatId.value)
             }
         }
+    }
+
+    fun joinChat(chatId: Int) {
+        _activeChatId.value = chatId
+        chatClient.joinSocketIOChat(chatId)
+        chatClient.joinChat(chatId)
+
+        // Mark messages as seen via Socket.IO and REST fallback
+        chatClient.markMessageSeen(chatId)
+        viewModelScope.launch {
+            try {
+                chatClient.markChatSeenRest(chatId)
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun leaveChat(chatId: Int) {
+        chatClient.leaveSocketIOChat(chatId)
+    }
+
+    fun emitTyping(chatId: Int) {
+        chatClient.emitTyping(chatId)
+    }
+
+    fun emitStopTyping(chatId: Int) {
+        chatClient.emitStopTyping(chatId)
     }
 
     fun fetchRegisteredUsers() {
@@ -123,13 +239,11 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
 
             result.onSuccess { chat ->
                 _currentRecipient.value = recipient
-                _activeChatId.value = chat.id
+                _partnerIsOnline.value = null
+                _partnerTypingText.value = null
                 _messageList.value = emptyList()
 
-                // Connect WebSocket to specific 1-on-1 chat room
-                chatClient.connectWebSocket(chat.id)
-
-                // Load existing history
+                joinChat(chat.id)
                 loadMessages(chat.id)
 
                 _statusEvent.tryEmit("Chatting with ${recipient.name}")
@@ -137,15 +251,6 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
                 _statusEvent.tryEmit("Failed to create chat: ${err.localizedMessage}")
             }
         }
-    }
-
-    fun connectWebSocket(chatId: Int) {
-        _activeChatId.value = chatId
-        chatClient.connectWebSocket(chatId)
-    }
-
-    fun disconnectWebSocket() {
-        chatClient.disconnectWebSocket()
     }
 
     fun loadMessages(chatId: Int) {
@@ -163,13 +268,28 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
     }
 
     fun sendTextMessage(chatId: Int, text: String) {
-        val sentOverSocket = chatClient.sendTextMessageSocket(chatId, text)
+        val partnerId = _currentRecipient.value?.id ?: 0
 
-        // Also broadcast via REST to ensure persistence in MySQL
+        // 1. Emit send_message via Socket.IO
+        chatClient.sendSocketIOMessage(
+            chatId = chatId,
+            recipientId = partnerId,
+            message = text
+        )
+
+        // 2. Also emit over OkHttp WebSocket & REST fallback for persistence
+        chatClient.sendTextMessageSocket(chatId, text)
         viewModelScope.launch {
             try {
                 chatClient.sendTextMessageRest(chatId, text)
             } catch (_: Exception) {}
+        }
+
+        // 3. Optimistically add message to state with status = "sent" (single tick ✓)
+        val timeStr = try {
+            SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+        } catch (_: Exception) {
+            System.currentTimeMillis().toString()
         }
 
         val localMsg = ChatMessage(
@@ -177,10 +297,11 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
             senderId = chatClient.session.getUserId(),
             message = text,
             type = ChatMessage.TYPE_TEXT,
-            createdAt = System.currentTimeMillis().toString(),
+            createdAt = timeStr,
             sender = chatClient.getCachedUser(),
-            status = if (sentOverSocket) ChatMessage.STATUS_SENT else ChatMessage.STATUS_SENDING
+            status = ChatMessage.STATUS_SENT
         )
+
         _messageList.update { current ->
             if (current.none { it.message == text && it.senderId == localMsg.senderId && it.id == null }) {
                 current + localMsg
@@ -196,7 +317,7 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
 
             result.onSuccess { msg ->
                 _messageList.update { it + msg }
-                _statusEvent.tryEmit("Photo sent over WebSocket!")
+                _statusEvent.tryEmit("Photo sent!")
             }.onFailure {
                 _statusEvent.tryEmit("Photo upload/send failed: ${it.localizedMessage}")
             }

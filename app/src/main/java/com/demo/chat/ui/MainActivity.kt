@@ -3,7 +3,11 @@ package com.demo.chat.ui
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.OpenableColumns
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
@@ -36,6 +40,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var viewModel: MainViewModel
     private lateinit var messageAdapter: MessageAdapter
 
+    private val typingHandler = Handler(Looper.getMainLooper())
+    private val stopTypingRunnable = Runnable {
+        if (::viewModel.isInitialized) {
+            val chatId = viewModel.activeChatId.value
+            viewModel.emitStopTyping(chatId)
+        }
+    }
+
     private val photoPickerLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -65,8 +77,26 @@ class MainActivity : AppCompatActivity() {
         setupListeners()
         observeViewModel()
 
-        // Discover active conversation and auto-connect WebSocket
+        // Discover active conversation and auto-connect Socket.IO
         viewModel.loadInitialConversation()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::viewModel.isInitialized) {
+            val chatId = viewModel.activeChatId.value
+            viewModel.joinChat(chatId)
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (::viewModel.isInitialized) {
+            val chatId = viewModel.activeChatId.value
+            typingHandler.removeCallbacks(stopTypingRunnable)
+            viewModel.emitStopTyping(chatId)
+            viewModel.leaveChat(chatId)
+        }
     }
 
     /**
@@ -147,12 +177,30 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // Typing indicator with 1.5-second debounce
+        binding.etMessageInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                if (s.isNullOrBlank()) return
+                val chatId = viewModel.activeChatId.value
+                viewModel.emitTyping(chatId)
+
+                typingHandler.removeCallbacks(stopTypingRunnable)
+                typingHandler.postDelayed(stopTypingRunnable, 1500)
+            }
+
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
         binding.btnSendMessage.setOnClickListener {
             val text = binding.etMessageInput.text.toString().trim()
             if (text.isNotEmpty()) {
                 val chatId = viewModel.activeChatId.value
                 viewModel.sendTextMessage(chatId, text)
                 binding.etMessageInput.text.clear()
+                typingHandler.removeCallbacks(stopTypingRunnable)
+                viewModel.emitStopTyping(chatId)
             }
         }
 
@@ -233,25 +281,69 @@ class MainActivity : AppCompatActivity() {
                 // 3. Observe active recipient
                 launch {
                     viewModel.currentRecipient.collectLatest { recipient ->
-                        if (recipient != null) {
-                            binding.tvChatPartnerName.text = "Chat: ${recipient.name}"
-                        } else {
-                            binding.tvChatPartnerName.text = "Chat Room #${viewModel.activeChatId.value}"
+                        runOnUiThread {
+                            if (recipient != null) {
+                                binding.tvChatPartnerName.text = "Chat: ${recipient.name}"
+                            } else {
+                                binding.tvChatPartnerName.text = "Chat Room #${viewModel.activeChatId.value}"
+                            }
                         }
                     }
                 }
 
-                // 4. Observe status events SharedFlow
+                // 4. Observe partner typing indicator
                 launch {
-                    viewModel.statusEvent.collectLatest { msg ->
-                        Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+                    viewModel.partnerTypingText.collectLatest { typingText ->
+                        runOnUiThread {
+                            if (typingText != null) {
+                                binding.typingIndicatorTextView.text = typingText
+                                binding.typingIndicatorTextView.visibility = View.VISIBLE
+                            } else {
+                                binding.typingIndicatorTextView.visibility = View.GONE
+                            }
+                        }
                     }
                 }
 
-                // 5. Loading indicator
+                // 5. Observe partner online/offline presence
+                launch {
+                    viewModel.partnerIsOnline.collectLatest { isOnline ->
+                        runOnUiThread {
+                            when (isOnline) {
+                                true -> {
+                                    binding.onlineStatusTextView.text = "Online"
+                                    binding.onlineStatusTextView.visibility = View.VISIBLE
+                                    binding.onlineStatusIndicator.visibility = View.VISIBLE
+                                }
+                                false -> {
+                                    binding.onlineStatusTextView.text = "Offline"
+                                    binding.onlineStatusTextView.visibility = View.VISIBLE
+                                    binding.onlineStatusIndicator.visibility = View.GONE
+                                }
+                                null -> {
+                                    binding.onlineStatusTextView.visibility = View.GONE
+                                    binding.onlineStatusIndicator.visibility = View.GONE
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 6. Observe status events SharedFlow
+                launch {
+                    viewModel.statusEvent.collectLatest { msg ->
+                        runOnUiThread {
+                            Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+
+                // 7. Loading indicator
                 launch {
                     viewModel.isLoading.collectLatest { loading ->
-                        binding.progressBar.visibility = if (loading) View.VISIBLE else View.GONE
+                        runOnUiThread {
+                            binding.progressBar.visibility = if (loading) View.VISIBLE else View.GONE
+                        }
                     }
                 }
             }
@@ -259,27 +351,29 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateConnectionUi(state: ConnectionState) {
-        when (state) {
-            is ConnectionState.Connected -> {
-                binding.indicatorDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_connected)
-                binding.tvConnectionStatus.text = "WebSocket: Connected (2-Way Live)"
-            }
-            is ConnectionState.Connecting -> {
-                binding.indicatorDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_reconnecting)
-                binding.tvConnectionStatus.text = "WebSocket: Connecting..."
-            }
-            is ConnectionState.Reconnecting -> {
-                binding.indicatorDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_reconnecting)
-                binding.tvConnectionStatus.text =
-                    "WebSocket: Reconnecting (${state.attempt}/${state.maxAttempts}) in ${state.delayMillis / 1000}s..."
-            }
-            is ConnectionState.Disconnected -> {
-                binding.indicatorDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_disconnected)
-                binding.tvConnectionStatus.text = "WebSocket: Disconnected"
-            }
-            is ConnectionState.Failed -> {
-                binding.indicatorDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_disconnected)
-                binding.tvConnectionStatus.text = "WebSocket: Failed (${state.message})"
+        runOnUiThread {
+            when (state) {
+                is ConnectionState.Connected -> {
+                    binding.indicatorDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_connected)
+                    binding.tvConnectionStatus.text = "Socket.IO: Connected (Live)"
+                }
+                is ConnectionState.Connecting -> {
+                    binding.indicatorDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_reconnecting)
+                    binding.tvConnectionStatus.text = "Socket.IO: Connecting..."
+                }
+                is ConnectionState.Reconnecting -> {
+                    binding.indicatorDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_reconnecting)
+                    binding.tvConnectionStatus.text =
+                        "Socket.IO: Reconnecting (${state.attempt}/${state.maxAttempts})..."
+                }
+                is ConnectionState.Disconnected -> {
+                    binding.indicatorDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_disconnected)
+                    binding.tvConnectionStatus.text = "Socket.IO: Disconnected"
+                }
+                is ConnectionState.Failed -> {
+                    binding.indicatorDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_disconnected)
+                    binding.tvConnectionStatus.text = "Socket.IO: Error (${state.message})"
+                }
             }
         }
     }
@@ -341,8 +435,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        typingHandler.removeCallbacks(stopTypingRunnable)
         if (::viewModel.isInitialized) {
-            viewModel.disconnectWebSocket()
+            val chatId = viewModel.activeChatId.value
+            viewModel.leaveChat(chatId)
         }
     }
 }

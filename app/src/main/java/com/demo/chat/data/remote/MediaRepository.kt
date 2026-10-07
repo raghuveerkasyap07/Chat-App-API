@@ -47,6 +47,7 @@ class MediaRepository(
             val response = apiService.uploadAttachment(
                 chatId = chatId,
                 file = filePart,
+                message = descBody,
                 description = descBody,
                 type = typeBody
             )

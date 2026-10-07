@@ -23,12 +23,22 @@ data class ChatMessage(
         const val TYPE_IMAGE = "TYPE_IMAGE"
         const val TYPE_SYSTEM = "TYPE_SYSTEM"
 
-        const val STATUS_SENDING = "SENDING"
-        const val STATUS_SENT = "SENT"
-        const val STATUS_DELIVERED = "DELIVERED"
-        const val STATUS_READ = "READ"
-        const val STATUS_FAILED = "FAILED"
+        const val STATUS_SENDING = "sending"
+        const val STATUS_SENT = "sent"
+        const val STATUS_DELIVERED = "delivered"
+        const val STATUS_SEEN = "seen"
+        const val STATUS_READ = "read"
+        const val STATUS_FAILED = "failed"
     }
+
+    val isSeen: Boolean
+        get() = status.equals("seen", ignoreCase = true) || status.equals("read", ignoreCase = true)
+
+    val isDelivered: Boolean
+        get() = status.equals("delivered", ignoreCase = true)
+
+    val isSent: Boolean
+        get() = status.equals("sent", ignoreCase = true)
 
     val isImage: Boolean
         get() = type.equals(TYPE_IMAGE, ignoreCase = true) || !mediaUrl.isNullOrBlank()

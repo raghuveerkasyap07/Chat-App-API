@@ -58,6 +58,7 @@ dependencies {
 
     implementation(libs.coil)
     implementation(libs.androidx.security.crypto)
+    implementation(libs.socket.io.client)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

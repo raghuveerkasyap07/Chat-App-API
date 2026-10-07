@@ -65,12 +65,18 @@ interface ChatApiService {
         @Body request: SendMessageRequest
     ): Response<ApiResponse<JsonElement>>
 
+    @PUT("api/chats/{chatId}/seen")
+    suspend fun markChatSeen(
+        @Path("chatId") chatId: Int
+    ): Response<ApiResponse<JsonElement>>
+
     // --- Media Upload (Multipart) ---
     @Multipart
     @POST("api/chats/{chatId}/attachments")
     suspend fun uploadAttachment(
         @Path("chatId") chatId: Int,
         @Part file: MultipartBody.Part,
+        @Part("message") message: RequestBody? = null,
         @Part("description") description: RequestBody? = null,
         @Part("type") type: RequestBody? = null
     ): Response<ApiResponse<JsonElement>>

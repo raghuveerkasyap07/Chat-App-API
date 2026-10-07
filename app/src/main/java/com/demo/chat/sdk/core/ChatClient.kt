@@ -15,10 +15,43 @@ class ChatClient private constructor(
     val media: MediaRepository,
     val socket: WebSocketClientManager
 ) {
+    var socketIO: SocketIOManager? = null
+        private set
+
+    constructor(
+        session: SessionManager,
+        auth: AuthRepository,
+        chat: ChatRepository,
+        media: MediaRepository,
+        socket: WebSocketClientManager,
+        socketIO: SocketIOManager?
+    ) : this(session, auth, chat, media, socket) {
+        this.socketIO = socketIO
+    }
+
+    val socketIOManager: SocketIOManager by lazy {
+        socketIO ?: SocketIOManager(session).also { this.socketIO = it }
+    }
 
     // Asynchronous streams exposed directly
     val connectionState: StateFlow<ConnectionState> = socket.connectionState
     val messageStream: SharedFlow<ChatMessage> = socket.messageFlow
+
+    // Socket.IO streams
+    val socketIOConnectionState: StateFlow<ConnectionState>
+        get() = socketIOManager.connectionState
+
+    val socketIOMessageStream: SharedFlow<ChatMessage>
+        get() = socketIOManager.messageFlow
+
+    val receiptEvents: SharedFlow<ReceiptEvent>
+        get() = socketIOManager.receiptFlow
+
+    val typingEvents: SharedFlow<TypingEvent>
+        get() = socketIOManager.typingFlow
+
+    val presenceEvents: SharedFlow<PresenceEvent>
+        get() = socketIOManager.presenceFlow
 
     // --- Authentication Operations ---
 
@@ -36,6 +69,7 @@ class ChatClient private constructor(
 
     fun logout() {
         socket.disconnect()
+        socketIO?.disconnect()
         auth.logout()
     }
 
@@ -158,6 +192,53 @@ class ChatClient private constructor(
         socket.disconnect()
     }
 
+    // --- Socket.IO Operations ---
+
+    fun connectSocketIO(token: String? = null) {
+        socketIOManager.connect(token = token)
+    }
+
+    fun joinSocketIOChat(chatId: Int): Boolean {
+        return socketIOManager.joinChat(chatId)
+    }
+
+    fun leaveSocketIOChat(chatId: Int): Boolean {
+        return socketIOManager.leaveChat(chatId)
+    }
+
+    fun sendSocketIOMessage(
+        chatId: Int,
+        recipientId: Int,
+        message: String,
+        mediaUrl: String? = null
+    ): Boolean {
+        return socketIOManager.sendMessage(chatId, recipientId, message, mediaUrl)
+    }
+
+    fun markMessageDelivered(chatId: Int, messageId: Int? = null): Boolean {
+        return socketIOManager.markMessageDelivered(chatId, messageId)
+    }
+
+    fun markMessageSeen(chatId: Int, messageId: Int? = null): Boolean {
+        return socketIOManager.markMessageSeen(chatId, messageId)
+    }
+
+    suspend fun markChatSeenRest(chatId: Int): Result<Boolean> {
+        return chat.markChatSeen(chatId)
+    }
+
+    fun emitTyping(chatId: Int): Boolean {
+        return socketIOManager.emitTyping(chatId)
+    }
+
+    fun emitStopTyping(chatId: Int): Boolean {
+        return socketIOManager.emitStopTyping(chatId)
+    }
+
+    fun disconnectSocketIO() {
+        socketIO?.disconnect()
+    }
+
     // --- Factory & Builder ---
 
     companion object {
@@ -186,6 +267,7 @@ class ChatClient private constructor(
         fun reset() {
             synchronized(this) {
                 instance?.disconnectWebSocket()
+                instance?.disconnectSocketIO()
                 instance = null
             }
         }
@@ -214,13 +296,15 @@ class ChatClient private constructor(
                 sessionManager = sessionManager,
                 gson = networkProvider.gson
             )
+            val socketIOManager = SocketIOManager(sessionManager)
 
             return ChatClient(
                 session = sessionManager,
                 auth = authRepo,
                 chat = chatRepo,
                 media = mediaRepo,
-                socket = socketManager
+                socket = socketManager,
+                socketIO = socketIOManager
             )
         }
     }
