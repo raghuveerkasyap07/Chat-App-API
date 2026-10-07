@@ -16,7 +16,7 @@
         android:theme="@style/Theme.DemoChat"
         android:usesCleartextTraffic="true">
 
-        <!-- Entry Point: AuthActivity checks session; navigates to MainActivity if logged in -->
+        <!-- Entry Point: AuthActivity checks session; navigates to ThreadListActivity if logged in -->
         <activity
             android:name=".ui.AuthActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
@@ -29,7 +29,23 @@
             </intent-filter>
         </activity>
 
-        <!-- Main Real-Time Chat Activity -->
+        <!-- WhatsApp-Style Thread List Screen -->
+        <activity
+            android:name=".ui.threads.ThreadListActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Real-Time Chat Room Activity with Photo Picker & Multi-ViewTypes -->
+        <activity
+            android:name=".ui.chat.ChatActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Legacy Main Activity -->
         <activity
             android:name=".ui.MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"

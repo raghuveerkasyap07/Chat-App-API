@@ -9,14 +9,14 @@ data class ChatMessage(
     @SerializedName("sender_id", alternate = ["senderId", "userId", "user_id", "from_id"])
     val senderId: Int,
     val message: String = "",
-    val type: String = TYPE_TEXT,
+    val type: String? = TYPE_TEXT,
     @SerializedName("media_url", alternate = ["mediaUrl", "imageUrl", "image_url", "url"])
     val mediaUrl: String? = null,
     val metadata: MediaMetadata? = null,
     @SerializedName("created_at", alternate = ["createdAt", "timestamp", "time"])
     val createdAt: String? = null,
     val sender: User? = null,
-    val status: String = STATUS_SENT
+    val status: String? = STATUS_SENT
 ) {
     companion object {
         const val TYPE_TEXT = "TYPE_TEXT"
@@ -31,10 +31,10 @@ data class ChatMessage(
     }
 
     val isImage: Boolean
-        get() = type.equals(TYPE_IMAGE, ignoreCase = true) || !mediaUrl.isNullOrBlank()
+        get() = (type ?: TYPE_IMAGE).equals(TYPE_IMAGE, ignoreCase = true) || !mediaUrl.isNullOrBlank()
 
     val isText: Boolean
-        get() = type.equals(TYPE_TEXT, ignoreCase = true) && mediaUrl.isNullOrBlank()
+        get() = (type ?: TYPE_TEXT).equals(TYPE_TEXT, ignoreCase = true) && mediaUrl.isNullOrBlank()
 
     fun isSentBy(currentUserId: Int): Boolean {
         return senderId == currentUserId || (sender?.id == currentUserId && currentUserId > 0)
