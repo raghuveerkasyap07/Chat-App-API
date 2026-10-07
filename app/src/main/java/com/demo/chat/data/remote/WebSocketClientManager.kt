@@ -326,6 +326,112 @@ class WebSocketClientManager(
         }
     }
 
+    fun leaveChat(chatId: Int): Boolean {
+        return if (isSocketIo.get()) {
+            val payload = JsonObject().apply {
+                addProperty("chatId", chatId)
+                addProperty("chat_id", chatId)
+            }
+            sendFrame("""42["${SocketEvents.LEAVE_CHAT}",$payload]""")
+        } else {
+            val payload = JsonObject().apply {
+                addProperty("event", SocketEvents.LEAVE_CHAT)
+                addProperty("action", SocketEvents.LEAVE_CHAT)
+                addProperty("chatId", chatId)
+                addProperty("chat_id", chatId)
+            }
+            sendFrame(payload.toString())
+        }
+    }
+
+    fun sendTyping(chatId: Int): Boolean {
+        return if (isSocketIo.get()) {
+            val payload = JsonObject().apply {
+                addProperty("chatId", chatId)
+                addProperty("chat_id", chatId)
+            }
+            sendFrame("""42["${SocketEvents.TYPING}",$payload]""")
+        } else {
+            val payload = JsonObject().apply {
+                addProperty("event", SocketEvents.TYPING)
+                addProperty("action", SocketEvents.TYPING)
+                addProperty("chatId", chatId)
+                addProperty("chat_id", chatId)
+            }
+            sendFrame(payload.toString())
+        }
+    }
+
+    fun sendStopTyping(chatId: Int): Boolean {
+        return if (isSocketIo.get()) {
+            val payload = JsonObject().apply {
+                addProperty("chatId", chatId)
+                addProperty("chat_id", chatId)
+            }
+            sendFrame("""42["${SocketEvents.STOP_TYPING}",$payload]""")
+        } else {
+            val payload = JsonObject().apply {
+                addProperty("event", SocketEvents.STOP_TYPING)
+                addProperty("action", SocketEvents.STOP_TYPING)
+                addProperty("chatId", chatId)
+                addProperty("chat_id", chatId)
+            }
+            sendFrame(payload.toString())
+        }
+    }
+
+    fun sendSeen(chatId: Int, messageId: Int? = null): Boolean {
+        return if (isSocketIo.get()) {
+            val payload = JsonObject().apply {
+                addProperty("chatId", chatId)
+                addProperty("chat_id", chatId)
+                messageId?.let {
+                    addProperty("messageId", it)
+                    addProperty("message_id", it)
+                }
+            }
+            sendFrame("""42["${SocketEvents.MESSAGE_SEEN}",$payload]""")
+        } else {
+            val payload = JsonObject().apply {
+                addProperty("event", SocketEvents.MESSAGE_SEEN)
+                addProperty("action", SocketEvents.MESSAGE_SEEN)
+                addProperty("chatId", chatId)
+                addProperty("chat_id", chatId)
+                messageId?.let {
+                    addProperty("messageId", it)
+                    addProperty("message_id", it)
+                }
+            }
+            sendFrame(payload.toString())
+        }
+    }
+
+    fun sendDelivered(chatId: Int, messageId: Int? = null): Boolean {
+        return if (isSocketIo.get()) {
+            val payload = JsonObject().apply {
+                addProperty("chatId", chatId)
+                addProperty("chat_id", chatId)
+                messageId?.let {
+                    addProperty("messageId", it)
+                    addProperty("message_id", it)
+                }
+            }
+            sendFrame("""42["${SocketEvents.MESSAGE_DELIVERED}",$payload]""")
+        } else {
+            val payload = JsonObject().apply {
+                addProperty("event", SocketEvents.MESSAGE_DELIVERED)
+                addProperty("action", SocketEvents.MESSAGE_DELIVERED)
+                addProperty("chatId", chatId)
+                addProperty("chat_id", chatId)
+                messageId?.let {
+                    addProperty("messageId", it)
+                    addProperty("message_id", it)
+                }
+            }
+            sendFrame(payload.toString())
+        }
+    }
+
     /**
      * Socket event: send_message (TYPE_TEXT)
      */

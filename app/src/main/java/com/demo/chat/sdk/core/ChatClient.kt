@@ -137,6 +137,26 @@ class ChatClient private constructor(
         return socket.joinChat(chatId)
     }
 
+    fun leaveChat(chatId: Int): Boolean {
+        return socket.leaveChat(chatId)
+    }
+
+    fun sendTyping(chatId: Int): Boolean {
+        return socket.sendTyping(chatId)
+    }
+
+    fun sendStopTyping(chatId: Int): Boolean {
+        return socket.sendStopTyping(chatId)
+    }
+
+    fun sendSeen(chatId: Int, messageId: Int? = null): Boolean {
+        return socket.sendSeen(chatId, messageId)
+    }
+
+    fun sendDelivered(chatId: Int, messageId: Int? = null): Boolean {
+        return socket.sendDelivered(chatId, messageId)
+    }
+
     fun sendTextMessageSocket(chatId: Int, message: String): Boolean {
         return socket.sendTextMessage(chatId, message)
     }
