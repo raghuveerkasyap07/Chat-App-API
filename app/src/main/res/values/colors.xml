@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="purple_200">#FFBB86FC</color>
+    <color name="purple_500">#FF6200EE</color>
+    <color name="purple_700">#FF3700B3</color>
+    <color name="teal_200">#FF03DAC5</color>
+    <color name="teal_700">#FF018786</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="whatsapp_green">#075E54</color>
+    <color name="whatsapp_light_green">#25D366</color>
+    <color name="bubble_outgoing">#DCF8C6</color>
+    <color name="bubble_incoming">#FFFFFF</color>
+    <color name="chat_background">#ECE5DD</color>
+    <color name="gray_text">#757575</color>
+    <color name="status_connected">#4CAF50</color>
+    <color name="status_reconnecting">#FF9800</color>
+    <color name="status_disconnected">#F44336</color>
+</resources>
