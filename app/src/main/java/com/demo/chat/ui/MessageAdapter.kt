@@ -49,7 +49,7 @@ class MessageAdapter(
                 params.gravity = Gravity.START
                 binding.bubbleLayout.setBackgroundColor(ContextCompat.getColor(context, R.color.bubble_incoming))
                 if (message.sender != null) {
-                    binding.tvSenderName.text = message.sender.name
+                    binding.tvSenderName.text = message.sender.displayName
                     binding.tvSenderName.visibility = View.VISIBLE
                 } else {
                     binding.tvSenderName.visibility = View.GONE
@@ -58,8 +58,9 @@ class MessageAdapter(
             binding.bubbleLayout.layoutParams = params
 
             // Bind text
-            if (message.message.isNotBlank()) {
-                binding.tvMessageBody.text = message.message
+            val textContent = message.message ?: ""
+            if (textContent.isNotBlank()) {
+                binding.tvMessageBody.text = textContent
                 binding.tvMessageBody.visibility = View.VISIBLE
             } else {
                 binding.tvMessageBody.visibility = View.GONE

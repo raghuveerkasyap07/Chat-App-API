@@ -9,7 +9,6 @@ import android.provider.OpenableColumns
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
-import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
@@ -19,20 +18,35 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.demo.chat.ChatApplication
 import com.demo.chat.R
 import com.demo.chat.data.model.ConnectionState
-import com.demo.chat.data.model.User
 import com.demo.chat.databinding.ActivityMainBinding
 import com.demo.chat.databinding.DialogContactsBinding
+import com.demo.chat.sdk.core.ChatClient
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
+
+class MainViewModelFactory(
+    private val chatClient: ChatClient
+) : ViewModelProvider.Factory {
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
+            @Suppress("UNCHECKED_CAST")
+            return MainViewModel(chatClient) as T
+        }
+        throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
+    }
+}
 
 class MainActivity : AppCompatActivity() {
 
@@ -69,7 +83,8 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        viewModel = MainViewModel(chatClient)
+        // Retain ViewModel across screen rotations and config changes
+        viewModel = ViewModelProvider(this, MainViewModelFactory(chatClient))[MainViewModel::class.java]
 
         setupWindowInsets()
         setupRecyclerView(chatClient.session.getUserId())
@@ -107,6 +122,8 @@ class MainActivity : AppCompatActivity() {
         val initialTopPadding = binding.topAppBar.paddingTop
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, windowInsets ->
+            if (isFinishing || isDestroyed) return@setOnApplyWindowInsetsListener windowInsets
+
             val bars = windowInsets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime()
             )
@@ -131,7 +148,10 @@ class MainActivity : AppCompatActivity() {
 
             if (imeInsets.bottom > 0 && ::messageAdapter.isInitialized && messageAdapter.itemCount > 0) {
                 binding.recyclerViewMessages.post {
-                    binding.recyclerViewMessages.scrollToPosition(messageAdapter.itemCount - 1)
+                    if (::messageAdapter.isInitialized && messageAdapter.itemCount > 0) {
+                        val target = messageAdapter.itemCount - 1
+                        binding.recyclerViewMessages.scrollToPosition(target)
+                    }
                 }
             }
 
@@ -142,7 +162,10 @@ class MainActivity : AppCompatActivity() {
         binding.recyclerViewMessages.addOnLayoutChangeListener { _, _, _, _, bottom, _, _, _, oldBottom ->
             if (bottom < oldBottom && ::messageAdapter.isInitialized && messageAdapter.itemCount > 0) {
                 binding.recyclerViewMessages.post {
-                    binding.recyclerViewMessages.scrollToPosition(messageAdapter.itemCount - 1)
+                    if (::messageAdapter.isInitialized && messageAdapter.itemCount > 0) {
+                        val target = messageAdapter.itemCount - 1
+                        binding.recyclerViewMessages.scrollToPosition(target)
+                    }
                 }
             }
         }
@@ -172,7 +195,9 @@ class MainActivity : AppCompatActivity() {
         binding.etMessageInput.setOnClickListener {
             if (::messageAdapter.isInitialized && messageAdapter.itemCount > 0) {
                 binding.recyclerViewMessages.postDelayed({
-                    binding.recyclerViewMessages.scrollToPosition(messageAdapter.itemCount - 1)
+                    if (::messageAdapter.isInitialized && messageAdapter.itemCount > 0) {
+                        binding.recyclerViewMessages.scrollToPosition(messageAdapter.itemCount - 1)
+                    }
                 }, 150)
             }
         }
@@ -220,6 +245,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showContactsBottomSheet() {
+        if (isFinishing || isDestroyed) return
+
         val dialog = BottomSheetDialog(this)
         val dialogBinding = DialogContactsBinding.inflate(layoutInflater)
         dialog.setContentView(dialogBinding.root)
@@ -240,9 +267,11 @@ class MainActivity : AppCompatActivity() {
         // Trigger fetch
         viewModel.fetchRegisteredUsers()
 
-        lifecycleScope.launch {
+        var dialogJob: Job? = null
+        dialogJob = lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.registeredUsers.collectLatest { users ->
+                    if (!dialog.isShowing || isFinishing || isDestroyed) return@collectLatest
                     dialogBinding.progressContacts.visibility = View.GONE
                     if (users.isEmpty()) {
                         dialogBinding.tvEmptyContacts.visibility = View.VISIBLE
@@ -252,6 +281,10 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+        }
+
+        dialog.setOnDismissListener {
+            dialogJob.cancel()
         }
 
         dialog.show()
@@ -270,8 +303,9 @@ class MainActivity : AppCompatActivity() {
                 // 2. Observe message list StateFlow
                 launch {
                     viewModel.messageList.collectLatest { messages ->
+                        if (isFinishing || isDestroyed) return@collectLatest
                         messageAdapter.submitList(messages) {
-                            if (messages.isNotEmpty()) {
+                            if (messages.isNotEmpty() && !isFinishing && !isDestroyed) {
                                 binding.recyclerViewMessages.scrollToPosition(messages.size - 1)
                             }
                         }
@@ -281,12 +315,11 @@ class MainActivity : AppCompatActivity() {
                 // 3. Observe active recipient
                 launch {
                     viewModel.currentRecipient.collectLatest { recipient ->
-                        runOnUiThread {
-                            if (recipient != null) {
-                                binding.tvChatPartnerName.text = "Chat: ${recipient.name}"
-                            } else {
-                                binding.tvChatPartnerName.text = "Chat Room #${viewModel.activeChatId.value}"
-                            }
+                        if (isFinishing || isDestroyed) return@collectLatest
+                        if (recipient != null) {
+                            binding.tvChatPartnerName.text = "Chat: ${recipient.name}"
+                        } else {
+                            binding.tvChatPartnerName.text = "Chat Room #${viewModel.activeChatId.value}"
                         }
                     }
                 }
@@ -294,13 +327,12 @@ class MainActivity : AppCompatActivity() {
                 // 4. Observe partner typing indicator
                 launch {
                     viewModel.partnerTypingText.collectLatest { typingText ->
-                        runOnUiThread {
-                            if (typingText != null) {
-                                binding.typingIndicatorTextView.text = typingText
-                                binding.typingIndicatorTextView.visibility = View.VISIBLE
-                            } else {
-                                binding.typingIndicatorTextView.visibility = View.GONE
-                            }
+                        if (isFinishing || isDestroyed) return@collectLatest
+                        if (typingText != null) {
+                            binding.typingIndicatorTextView.text = typingText
+                            binding.typingIndicatorTextView.visibility = View.VISIBLE
+                        } else {
+                            binding.typingIndicatorTextView.visibility = View.GONE
                         }
                     }
                 }
@@ -308,22 +340,21 @@ class MainActivity : AppCompatActivity() {
                 // 5. Observe partner online/offline presence
                 launch {
                     viewModel.partnerIsOnline.collectLatest { isOnline ->
-                        runOnUiThread {
-                            when (isOnline) {
-                                true -> {
-                                    binding.onlineStatusTextView.text = "Online"
-                                    binding.onlineStatusTextView.visibility = View.VISIBLE
-                                    binding.onlineStatusIndicator.visibility = View.VISIBLE
-                                }
-                                false -> {
-                                    binding.onlineStatusTextView.text = "Offline"
-                                    binding.onlineStatusTextView.visibility = View.VISIBLE
-                                    binding.onlineStatusIndicator.visibility = View.GONE
-                                }
-                                null -> {
-                                    binding.onlineStatusTextView.visibility = View.GONE
-                                    binding.onlineStatusIndicator.visibility = View.GONE
-                                }
+                        if (isFinishing || isDestroyed) return@collectLatest
+                        when (isOnline) {
+                            true -> {
+                                binding.onlineStatusTextView.text = "Online"
+                                binding.onlineStatusTextView.visibility = View.VISIBLE
+                                binding.onlineStatusIndicator.visibility = View.VISIBLE
+                            }
+                            false -> {
+                                binding.onlineStatusTextView.text = "Offline"
+                                binding.onlineStatusTextView.visibility = View.VISIBLE
+                                binding.onlineStatusIndicator.visibility = View.GONE
+                            }
+                            null -> {
+                                binding.onlineStatusTextView.visibility = View.GONE
+                                binding.onlineStatusIndicator.visibility = View.GONE
                             }
                         }
                     }
@@ -332,18 +363,16 @@ class MainActivity : AppCompatActivity() {
                 // 6. Observe status events SharedFlow
                 launch {
                     viewModel.statusEvent.collectLatest { msg ->
-                        runOnUiThread {
-                            Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
-                        }
+                        if (isFinishing || isDestroyed) return@collectLatest
+                        Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
                     }
                 }
 
                 // 7. Loading indicator
                 launch {
                     viewModel.isLoading.collectLatest { loading ->
-                        runOnUiThread {
-                            binding.progressBar.visibility = if (loading) View.VISIBLE else View.GONE
-                        }
+                        if (isFinishing || isDestroyed) return@collectLatest
+                        binding.progressBar.visibility = if (loading) View.VISIBLE else View.GONE
                     }
                 }
             }
@@ -351,29 +380,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateConnectionUi(state: ConnectionState) {
-        runOnUiThread {
-            when (state) {
-                is ConnectionState.Connected -> {
-                    binding.indicatorDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_connected)
-                    binding.tvConnectionStatus.text = "Socket.IO: Connected (Live)"
-                }
-                is ConnectionState.Connecting -> {
-                    binding.indicatorDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_reconnecting)
-                    binding.tvConnectionStatus.text = "Socket.IO: Connecting..."
-                }
-                is ConnectionState.Reconnecting -> {
-                    binding.indicatorDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_reconnecting)
-                    binding.tvConnectionStatus.text =
-                        "Socket.IO: Reconnecting (${state.attempt}/${state.maxAttempts})..."
-                }
-                is ConnectionState.Disconnected -> {
-                    binding.indicatorDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_disconnected)
-                    binding.tvConnectionStatus.text = "Socket.IO: Disconnected"
-                }
-                is ConnectionState.Failed -> {
-                    binding.indicatorDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_disconnected)
-                    binding.tvConnectionStatus.text = "Socket.IO: Error (${state.message})"
-                }
+        if (isFinishing || isDestroyed) return
+        when (state) {
+            is ConnectionState.Connected -> {
+                binding.indicatorDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_connected)
+                binding.tvConnectionStatus.text = "Socket.IO: Connected (Live)"
+            }
+            is ConnectionState.Connecting -> {
+                binding.indicatorDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_reconnecting)
+                binding.tvConnectionStatus.text = "Socket.IO: Connecting..."
+            }
+            is ConnectionState.Reconnecting -> {
+                binding.indicatorDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_reconnecting)
+                binding.tvConnectionStatus.text =
+                    "Socket.IO: Reconnecting (${state.attempt}/${state.maxAttempts})..."
+            }
+            is ConnectionState.Disconnected -> {
+                binding.indicatorDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_disconnected)
+                binding.tvConnectionStatus.text = "Socket.IO: Disconnected"
+            }
+            is ConnectionState.Failed -> {
+                binding.indicatorDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_disconnected)
+                binding.tvConnectionStatus.text = "Socket.IO: Error (${state.message})"
             }
         }
     }

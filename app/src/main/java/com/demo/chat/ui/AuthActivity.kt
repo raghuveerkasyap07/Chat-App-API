@@ -145,12 +145,13 @@ class AuthActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             val result = chatClient.login(email, password)
+            if (isFinishing || isDestroyed) return@launch
             setLoading(false)
 
             result.onSuccess { authData ->
                 Toast.makeText(
                     this@AuthActivity,
-                    "Welcome back, ${authData.user?.name ?: "User"}!",
+                    "Welcome back, ${authData.user?.displayName ?: "User"}!",
                     Toast.LENGTH_SHORT
                 ).show()
                 startMainActivity()
@@ -166,12 +167,13 @@ class AuthActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             val result = chatClient.register(name, email, password)
+            if (isFinishing || isDestroyed) return@launch
             setLoading(false)
 
             result.onSuccess { authData ->
                 Toast.makeText(
                     this@AuthActivity,
-                    "Account created successfully for ${authData.user?.name ?: name}!",
+                    "Account created successfully for ${authData.user?.displayName ?: name}!",
                     Toast.LENGTH_SHORT
                 ).show()
                 startMainActivity()

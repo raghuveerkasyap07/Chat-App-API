@@ -311,7 +311,12 @@ class ChatRepository(
                     try {
                         val msg = gson.fromJson(item, ChatMessage::class.java)
                         if (msg != null) {
-                            val sanitizedMsg = if (msg.chatId == 0) msg.copy(chatId = fallbackChatId) else msg
+                            val sanitizedMsg = msg.copy(
+                                chatId = if (msg.chatId == 0) fallbackChatId else msg.chatId,
+                                message = msg.message ?: "",
+                                type = msg.type ?: if (!msg.mediaUrl.isNullOrBlank()) ChatMessage.TYPE_IMAGE else ChatMessage.TYPE_TEXT,
+                                status = msg.status ?: ChatMessage.STATUS_SENT
+                            )
                             list.add(sanitizedMsg)
                         }
                     } catch (e: Exception) {

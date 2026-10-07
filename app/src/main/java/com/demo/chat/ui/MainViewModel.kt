@@ -51,6 +51,8 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
     private val _partnerIsOnline = MutableStateFlow<Boolean?>(null)
     val partnerIsOnline: StateFlow<Boolean?> = _partnerIsOnline.asStateFlow()
 
+    private var isConversationLoaded = false
+
     val isLoggedIn: Boolean
         get() = chatClient.isLoggedIn()
 
@@ -86,7 +88,7 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
             }
         }
 
-        // 2. Also collect legacy socket stream if present
+        // 2. Also collect legacy socket stream if present for backward-compatibility
         viewModelScope.launch {
             chatClient.messageStream.collect { msg ->
                 if (msg.chatId == _activeChatId.value) {
@@ -122,7 +124,11 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
                             }
 
                             if (matches) {
-                                msg.copy(status = receipt.status)
+                                msg.copy(
+                                    message = msg.message ?: "",
+                                    type = msg.type ?: if (!msg.mediaUrl.isNullOrBlank()) ChatMessage.TYPE_IMAGE else ChatMessage.TYPE_TEXT,
+                                    status = receipt.status ?: ChatMessage.STATUS_DELIVERED
+                                )
                             } else {
                                 msg
                             }
@@ -162,10 +168,12 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
      * Discovers active chats or contacts, connects Socket.IO, and joins the chat room.
      */
     fun loadInitialConversation() {
+        if (isConversationLoaded) return
+        isConversationLoaded = true
+
         viewModelScope.launch {
             // Establish persistent Socket.IO connection
             chatClient.connectSocketIO()
-            chatClient.connectWebSocket()
 
             _isLoading.value = true
             val convResult = chatClient.getConversations()
@@ -193,7 +201,6 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
     fun joinChat(chatId: Int) {
         _activeChatId.value = chatId
         chatClient.joinSocketIOChat(chatId)
-        chatClient.joinChat(chatId)
 
         // Mark messages as seen via Socket.IO and REST fallback
         chatClient.markMessageSeen(chatId)
@@ -277,8 +284,7 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
             message = text
         )
 
-        // 2. Also emit over OkHttp WebSocket & REST fallback for persistence
-        chatClient.sendTextMessageSocket(chatId, text)
+        // 2. Also emit over REST fallback for persistence in MySQL
         viewModelScope.launch {
             try {
                 chatClient.sendTextMessageRest(chatId, text)

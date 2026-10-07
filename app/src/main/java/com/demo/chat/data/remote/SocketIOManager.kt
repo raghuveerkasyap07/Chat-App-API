@@ -34,7 +34,15 @@ class SocketIOManager(
     private val _presenceFlow = MutableSharedFlow<PresenceEvent>(extraBufferCapacity = 64)
     val presenceFlow: SharedFlow<PresenceEvent> = _presenceFlow.asSharedFlow()
 
+    fun isConnected(): Boolean = socket?.connected() == true
+
     fun connect(serverUrl: String? = null, token: String? = null) {
+        if (socket?.connected() == true) {
+            ChatLogger.d(TAG, "Socket.IO already connected")
+            _connectionState.value = ConnectionState.Connected
+            return
+        }
+
         disconnect()
 
         val rawUrl = serverUrl ?: sessionManager.getBaseUrl()
@@ -56,9 +64,18 @@ class SocketIOManager(
             setupSocketListeners(s)
             s.connect()
             ChatLogger.d(TAG, "Socket.IO connecting to $effectiveUrl")
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             ChatLogger.e(TAG, "Socket.IO failed to initialize", e)
             _connectionState.value = ConnectionState.Failed(e)
+        }
+    }
+
+    private fun toJsonObject(arg: Any?): JSONObject? {
+        return when (arg) {
+            is JSONObject -> arg
+            is String -> try { JSONObject(arg) } catch (_: Throwable) { null }
+            null -> null
+            else -> try { JSONObject(arg.toString()) } catch (_: Throwable) { null }
         }
     }
 
@@ -88,15 +105,18 @@ class SocketIOManager(
         s.on("new_message") { args ->
             if (args.isEmpty()) return@on
             try {
-                val data = args[0] as JSONObject
-                val id = if (data.has("id") && !data.isNull("id")) data.getInt("id") else null
+                val data = toJsonObject(args[0]) ?: return@on
+                val id = if (data.has("id") && !data.isNull("id")) {
+                    data.optInt("id", -1).takeIf { it > 0 } ?: data.optString("id").toIntOrNull()
+                } else null
+
                 val msgChatId = data.optString("chatId", data.optString("chat_id", "0")).toIntOrNull() ?: 0
                 val senderId = data.optInt("senderId", data.optInt("sender_id", -1))
                 val senderName = data.optString("senderName", data.optString("sender_name", ""))
                 val messageText = data.optString("message", "")
                 val mediaUrl = when {
-                    data.has("mediaUrl") && !data.isNull("mediaUrl") -> data.getString("mediaUrl")
-                    data.has("media_url") && !data.isNull("media_url") -> data.getString("media_url")
+                    data.has("mediaUrl") && !data.isNull("mediaUrl") -> data.optString("mediaUrl").takeIf { it.isNotBlank() }
+                    data.has("media_url") && !data.isNull("media_url") -> data.optString("media_url").takeIf { it.isNotBlank() }
                     else -> null
                 }
                 val status = data.optString("status", ChatMessage.STATUS_SENT)
@@ -114,7 +134,7 @@ class SocketIOManager(
                     status = status
                 )
                 _messageFlow.tryEmit(chatMsg)
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 ChatLogger.e(TAG, "Error parsing new_message event", e)
             }
         }
@@ -123,11 +143,13 @@ class SocketIOManager(
         s.on("message_delivered") { args ->
             if (args.isEmpty()) return@on
             try {
-                val data = args[0] as JSONObject
+                val data = toJsonObject(args[0]) ?: return@on
                 val targetChatId = data.optString("chatId", data.optString("chat_id", ""))
-                val messageId = if (data.has("messageId") && !data.isNull("messageId")) data.getInt("messageId") else null
+                val messageId = if (data.has("messageId") && !data.isNull("messageId")) {
+                    data.optInt("messageId", -1).takeIf { it > 0 } ?: data.optString("messageId").toIntOrNull()
+                } else null
                 _receiptFlow.tryEmit(ReceiptEvent(chatId = targetChatId, messageId = messageId, status = "delivered"))
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 ChatLogger.e(TAG, "Error handling message_delivered event", e)
             }
         }
@@ -135,11 +157,13 @@ class SocketIOManager(
         s.on("message_seen") { args ->
             if (args.isEmpty()) return@on
             try {
-                val data = args[0] as JSONObject
+                val data = toJsonObject(args[0]) ?: return@on
                 val targetChatId = data.optString("chatId", data.optString("chat_id", ""))
-                val messageId = if (data.has("messageId") && !data.isNull("messageId")) data.getInt("messageId") else null
+                val messageId = if (data.has("messageId") && !data.isNull("messageId")) {
+                    data.optInt("messageId", -1).takeIf { it > 0 } ?: data.optString("messageId").toIntOrNull()
+                } else null
                 _receiptFlow.tryEmit(ReceiptEvent(chatId = targetChatId, messageId = messageId, status = "seen"))
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 ChatLogger.e(TAG, "Error handling message_seen event", e)
             }
         }
@@ -148,11 +172,11 @@ class SocketIOManager(
         s.on("user_typing") { args ->
             if (args.isEmpty()) return@on
             try {
-                val data = args[0] as JSONObject
+                val data = toJsonObject(args[0]) ?: return@on
                 val targetChatId = data.optString("chatId", data.optString("chat_id", ""))
                 val name = data.optString("name", "Partner")
                 _typingFlow.tryEmit(TypingEvent(chatId = targetChatId, name = name, isTyping = true))
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 ChatLogger.e(TAG, "Error handling user_typing event", e)
             }
         }
@@ -160,10 +184,10 @@ class SocketIOManager(
         s.on("user_stop_typing") { args ->
             if (args.isEmpty()) return@on
             try {
-                val data = args[0] as JSONObject
+                val data = toJsonObject(args[0]) ?: return@on
                 val targetChatId = data.optString("chatId", data.optString("chat_id", ""))
                 _typingFlow.tryEmit(TypingEvent(chatId = targetChatId, name = "", isTyping = false))
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 ChatLogger.e(TAG, "Error handling user_stop_typing event", e)
             }
         }
@@ -172,12 +196,12 @@ class SocketIOManager(
         s.on("user_online") { args ->
             if (args.isEmpty()) return@on
             try {
-                val data = args[0] as JSONObject
+                val data = toJsonObject(args[0]) ?: return@on
                 val onlineUserId = data.optInt("userId", data.optInt("user_id", -1))
                 if (onlineUserId > 0) {
                     _presenceFlow.tryEmit(PresenceEvent(userId = onlineUserId, isOnline = true))
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 ChatLogger.e(TAG, "Error handling user_online event", e)
             }
         }
@@ -185,12 +209,12 @@ class SocketIOManager(
         s.on("user_offline") { args ->
             if (args.isEmpty()) return@on
             try {
-                val data = args[0] as JSONObject
+                val data = toJsonObject(args[0]) ?: return@on
                 val offlineUserId = data.optInt("userId", data.optInt("user_id", -1))
                 if (offlineUserId > 0) {
                     _presenceFlow.tryEmit(PresenceEvent(userId = offlineUserId, isOnline = false))
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 ChatLogger.e(TAG, "Error handling user_offline event", e)
             }
         }
@@ -225,7 +249,9 @@ class SocketIOManager(
         val s = socket ?: return false
         val messageData = JSONObject().apply {
             put("chatId", chatId.toString())
-            put("recipientId", recipientId)
+            if (recipientId > 0) {
+                put("recipientId", recipientId)
+            }
             put("message", message)
             put("mediaUrl", mediaUrl ?: JSONObject.NULL)
         }
@@ -285,7 +311,7 @@ class SocketIOManager(
             socket = null
             _connectionState.value = ConnectionState.Disconnected
             ChatLogger.d(TAG, "Socket.IO disconnected and cleared")
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             ChatLogger.e(TAG, "Error disconnecting Socket.IO", e)
         }
     }
