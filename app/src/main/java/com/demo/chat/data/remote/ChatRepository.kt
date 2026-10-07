@@ -225,20 +225,29 @@ class ChatRepository(
     private fun parseUserList(jsonElement: JsonElement?): List<User> {
         if (jsonElement == null) return emptyList()
         return try {
-            if (jsonElement.isJsonArray) {
-                val type = object : TypeToken<List<User>>() {}.type
-                gson.fromJson(jsonElement, type)
+            val jsonArray = if (jsonElement.isJsonArray) {
+                jsonElement.asJsonArray
             } else if (jsonElement.isJsonObject) {
                 val obj = jsonElement.asJsonObject
-                val array = when {
+                when {
                     obj.has("users") && obj.get("users").isJsonArray -> obj.getAsJsonArray("users")
                     obj.has("items") && obj.get("items").isJsonArray -> obj.getAsJsonArray("items")
+                    obj.has("data") && obj.get("data").isJsonArray -> obj.getAsJsonArray("data")
                     else -> null
                 }
-                if (array != null) {
-                    val type = object : TypeToken<List<User>>() {}.type
-                    gson.fromJson(array, type)
-                } else emptyList()
+            } else null
+
+            if (jsonArray != null) {
+                val list = mutableListOf<User>()
+                for (item in jsonArray) {
+                    try {
+                        val user = gson.fromJson(item, User::class.java)
+                        if (user != null) list.add(user)
+                    } catch (e: Exception) {
+                        ChatLogger.e(TAG, "Error parsing user item", e)
+                    }
+                }
+                list
             } else emptyList()
         } catch (e: Exception) {
             ChatLogger.e(TAG, "Error parsing user list", e)
@@ -266,21 +275,30 @@ class ChatRepository(
     private fun parseChatList(jsonElement: JsonElement?): List<Chat> {
         if (jsonElement == null) return emptyList()
         return try {
-            if (jsonElement.isJsonArray) {
-                val type = object : TypeToken<List<Chat>>() {}.type
-                gson.fromJson(jsonElement, type)
+            val jsonArray = if (jsonElement.isJsonArray) {
+                jsonElement.asJsonArray
             } else if (jsonElement.isJsonObject) {
                 val obj = jsonElement.asJsonObject
-                val array = when {
+                when {
                     obj.has("chats") && obj.get("chats").isJsonArray -> obj.getAsJsonArray("chats")
                     obj.has("conversations") && obj.get("conversations").isJsonArray -> obj.getAsJsonArray("conversations")
                     obj.has("items") && obj.get("items").isJsonArray -> obj.getAsJsonArray("items")
+                    obj.has("data") && obj.get("data").isJsonArray -> obj.getAsJsonArray("data")
                     else -> null
                 }
-                if (array != null) {
-                    val type = object : TypeToken<List<Chat>>() {}.type
-                    gson.fromJson(array, type)
-                } else emptyList()
+            } else null
+
+            if (jsonArray != null) {
+                val list = mutableListOf<Chat>()
+                for (item in jsonArray) {
+                    try {
+                        val chat = gson.fromJson(item, Chat::class.java)
+                        if (chat != null) list.add(chat)
+                    } catch (e: Exception) {
+                        ChatLogger.e(TAG, "Error parsing chat item", e)
+                    }
+                }
+                list
             } else emptyList()
         } catch (e: Exception) {
             ChatLogger.e(TAG, "Error parsing chat list", e)

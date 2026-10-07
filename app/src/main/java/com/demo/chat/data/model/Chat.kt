@@ -3,7 +3,7 @@ package com.demo.chat.data.model
 import com.google.gson.annotations.SerializedName
 
 data class Chat(
-    val id: Int,
+    val id: Int = 0,
     @SerializedName("user1_id", alternate = ["user1Id"])
     val user1Id: Int? = null,
     @SerializedName("user2_id", alternate = ["user2Id"])

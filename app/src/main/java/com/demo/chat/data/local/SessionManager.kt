@@ -16,35 +16,30 @@ class SessionManager(
     customPrefs: SharedPreferences? = null
 ) {
 
-    private val prefs: SharedPreferences = customPrefs ?: try {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-        EncryptedSharedPreferences.create(
-            context,
-            PREFS_NAME,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
-    } catch (e: Throwable) {
-        ChatLogger.w(TAG, "EncryptedSharedPreferences failed, falling back to standard SharedPreferences", e)
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    }
+    private val prefs: SharedPreferences = customPrefs ?: initPrefs(context)
 
     private val gson = Gson()
 
-    private val _authTokenFlow = MutableStateFlow<String?>(prefs.getString(KEY_AUTH_TOKEN, null))
+    private val _authTokenFlow = MutableStateFlow<String?>(getAuthToken())
     val authTokenFlow: StateFlow<String?> = _authTokenFlow.asStateFlow()
 
     fun saveAuthToken(token: String) {
-        prefs.edit().putString(KEY_AUTH_TOKEN, token).apply()
-        _authTokenFlow.value = token
-        ChatLogger.d(TAG, "AuthToken successfully persisted in SessionManager")
+        try {
+            prefs.edit().putString(KEY_AUTH_TOKEN, token).apply()
+            _authTokenFlow.value = token
+            ChatLogger.d(TAG, "AuthToken successfully persisted in SessionManager")
+        } catch (e: Throwable) {
+            ChatLogger.e(TAG, "Failed to save auth token", e)
+        }
     }
 
     fun getAuthToken(): String? {
-        return prefs.getString(KEY_AUTH_TOKEN, null)
+        return try {
+            prefs.getString(KEY_AUTH_TOKEN, null)
+        } catch (e: Throwable) {
+            ChatLogger.e(TAG, "Failed to read auth token", e)
+            null
+        }
     }
 
     fun hasValidToken(): Boolean {
@@ -53,21 +48,31 @@ class SessionManager(
     }
 
     fun saveUser(user: User) {
-        val json = gson.toJson(user)
-        prefs.edit()
-            .putString(KEY_USER_DATA, json)
-            .putInt(KEY_USER_ID, user.id)
-            .putString(KEY_USER_NAME, user.name)
-            .putString(KEY_USER_EMAIL, user.email)
-            .apply()
-        ChatLogger.d(TAG, "User data persisted: ${user.name} (id=${user.id})")
+        try {
+            val json = gson.toJson(user)
+            prefs.edit()
+                .putString(KEY_USER_DATA, json)
+                .putInt(KEY_USER_ID, user.id)
+                .putString(KEY_USER_NAME, user.name ?: "")
+                .putString(KEY_USER_EMAIL, user.email ?: "")
+                .apply()
+            ChatLogger.d(TAG, "User data persisted: ${user.name} (id=${user.id})")
+        } catch (e: Throwable) {
+            ChatLogger.e(TAG, "Failed to save user", e)
+        }
     }
 
     fun getUser(): User? {
-        val json = prefs.getString(KEY_USER_DATA, null) ?: return null
+        val json = try {
+            prefs.getString(KEY_USER_DATA, null)
+        } catch (e: Throwable) {
+            ChatLogger.e(TAG, "Failed to read user json", e)
+            null
+        } ?: return null
+
         return try {
             gson.fromJson(json, User::class.java)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             ChatLogger.e(TAG, "Error deserializing stored user", e)
             null
         }
@@ -75,28 +80,58 @@ class SessionManager(
 
     fun getUserId(): Int {
         val user = getUser()
-        return user?.id ?: prefs.getInt(KEY_USER_ID, -1)
+        return user?.id ?: try {
+            prefs.getInt(KEY_USER_ID, -1)
+        } catch (_: Throwable) {
+            -1
+        }
     }
 
     fun setBaseUrl(url: String) {
-        val sanitized = if (url.endsWith("/")) url.dropLast(1) else url
-        prefs.edit()
-            .putString(KEY_BASE_URL, sanitized)
-            .remove(KEY_WS_URL) // Reset cached WS URL so it re-derives from new base URL
-            .apply()
+        val trimmed = url.trim()
+        val withScheme = if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+            "http://$trimmed"
+        } else {
+            trimmed
+        }
+        val sanitized = if (withScheme.endsWith("/")) withScheme.dropLast(1) else withScheme
+
+        try {
+            prefs.edit()
+                .putString(KEY_BASE_URL, sanitized)
+                .remove(KEY_WS_URL) // Reset cached WS URL so it re-derives from new base URL
+                .apply()
+        } catch (e: Throwable) {
+            ChatLogger.e(TAG, "Failed to set base URL", e)
+        }
     }
 
     fun getBaseUrl(): String {
-        return prefs.getString(KEY_BASE_URL, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
+        return try {
+            prefs.getString(KEY_BASE_URL, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
+        } catch (_: Throwable) {
+            DEFAULT_BASE_URL
+        }
     }
 
     fun setWebSocketUrl(url: String) {
-        prefs.edit().putString(KEY_WS_URL, url).apply()
+        try {
+            prefs.edit().putString(KEY_WS_URL, url).apply()
+        } catch (e: Throwable) {
+            ChatLogger.e(TAG, "Failed to set websocket URL", e)
+        }
     }
 
     fun getWebSocketUrl(): String {
-        val storedWs = prefs.getString(KEY_WS_URL, null)
-        if (!storedWs.isNullOrBlank() && (!storedWs.contains("192.168.") || storedWs.contains("socket.io"))) return storedWs
+        val storedWs = try {
+            prefs.getString(KEY_WS_URL, null)
+        } catch (_: Throwable) {
+            null
+        }
+
+        if (!storedWs.isNullOrBlank() && (!storedWs.contains("192.168.") || storedWs.contains("socket.io"))) {
+            return storedWs
+        }
 
         val httpBase = getBaseUrl()
         val wsScheme = if (httpBase.startsWith("https://")) "wss://" else "ws://"
@@ -110,14 +145,18 @@ class SessionManager(
     }
 
     fun clearSession() {
-        prefs.edit()
-            .remove(KEY_AUTH_TOKEN)
-            .remove(KEY_USER_DATA)
-            .remove(KEY_USER_ID)
-            .remove(KEY_USER_NAME)
-            .remove(KEY_USER_EMAIL)
-            .remove(KEY_WS_URL)
-            .apply()
+        try {
+            prefs.edit()
+                .remove(KEY_AUTH_TOKEN)
+                .remove(KEY_USER_DATA)
+                .remove(KEY_USER_ID)
+                .remove(KEY_USER_NAME)
+                .remove(KEY_USER_EMAIL)
+                .remove(KEY_WS_URL)
+                .apply()
+        } catch (e: Throwable) {
+            ChatLogger.e(TAG, "Failed to clear session prefs", e)
+        }
         _authTokenFlow.value = null
         ChatLogger.d(TAG, "Session cleared")
     }
@@ -134,5 +173,29 @@ class SessionManager(
         private const val KEY_WS_URL = "ws_endpoint_url"
 
         const val DEFAULT_BASE_URL = "http://192.168.0.14:5000"
+
+        private fun initPrefs(context: Context): SharedPreferences {
+            return try {
+                val masterKey = MasterKey.Builder(context)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .build()
+                val encPrefs = EncryptedSharedPreferences.create(
+                    context,
+                    PREFS_NAME,
+                    masterKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                )
+                // Test read to ensure keyset is not corrupted
+                encPrefs.getString("__test_crypto__", null)
+                encPrefs
+            } catch (e: Throwable) {
+                ChatLogger.w(TAG, "EncryptedSharedPreferences failed or Keystore corrupted, resetting", e)
+                try {
+                    context.deleteSharedPreferences(PREFS_NAME)
+                } catch (_: Throwable) {}
+                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            }
+        }
     }
 }

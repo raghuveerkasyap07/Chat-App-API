@@ -25,7 +25,7 @@ class AuthActivity : AppCompatActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
-        chatClient = (application as ChatApplication).chatClient
+        chatClient = (application as ChatApplication).getOrCreateChatClient()
 
         // If already logged in, skip directly to MainActivity
         if (chatClient.isLoggedIn()) {

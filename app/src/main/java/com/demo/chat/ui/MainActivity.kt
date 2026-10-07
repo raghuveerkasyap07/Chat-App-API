@@ -72,7 +72,7 @@ class MainActivity : AppCompatActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
-        val chatClient = (application as ChatApplication).chatClient
+        val chatClient = (application as ChatApplication).getOrCreateChatClient()
 
         // Verify session: If not logged in, redirect to AuthActivity
         if (!chatClient.isLoggedIn()) {
@@ -100,7 +100,9 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         if (::viewModel.isInitialized) {
             val chatId = viewModel.activeChatId.value
-            viewModel.joinChat(chatId)
+            if (chatId > 0) {
+                viewModel.joinChat(chatId)
+            }
         }
     }
 
@@ -109,8 +111,10 @@ class MainActivity : AppCompatActivity() {
         if (::viewModel.isInitialized) {
             val chatId = viewModel.activeChatId.value
             typingHandler.removeCallbacks(stopTypingRunnable)
-            viewModel.emitStopTyping(chatId)
-            viewModel.leaveChat(chatId)
+            if (chatId > 0) {
+                viewModel.emitStopTyping(chatId)
+                viewModel.leaveChat(chatId)
+            }
         }
     }
 
@@ -174,7 +178,7 @@ class MainActivity : AppCompatActivity() {
     private fun setupHeaderUserInfo() {
         val user = viewModel.currentUser
         binding.tvCurrentUser.text = if (user != null) {
-            "Logged in: ${user.name} (${user.email})"
+            "Logged in: ${user.displayName} (${user.email ?: ""})"
         } else {
             "Logged in"
         }
@@ -222,6 +226,11 @@ class MainActivity : AppCompatActivity() {
             val text = binding.etMessageInput.text.toString().trim()
             if (text.isNotEmpty()) {
                 val chatId = viewModel.activeChatId.value
+                if (chatId <= 0) {
+                    Toast.makeText(this, "Please select a contact to start chatting", Toast.LENGTH_SHORT).show()
+                    showContactsBottomSheet()
+                    return@setOnClickListener
+                }
                 viewModel.sendTextMessage(chatId, text)
                 binding.etMessageInput.text.clear()
                 typingHandler.removeCallbacks(stopTypingRunnable)
@@ -230,7 +239,17 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnAttachPhoto.setOnClickListener {
-            photoPickerLauncher.launch("image/*")
+            val chatId = viewModel.activeChatId.value
+            if (chatId <= 0) {
+                Toast.makeText(this, "Please select a contact before sending photos", Toast.LENGTH_SHORT).show()
+                showContactsBottomSheet()
+                return@setOnClickListener
+            }
+            try {
+                photoPickerLauncher.launch("image/*")
+            } catch (e: Throwable) {
+                Toast.makeText(this, "Unable to open photo picker: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
         }
 
         binding.btnSelectContact.setOnClickListener {
@@ -247,47 +266,55 @@ class MainActivity : AppCompatActivity() {
     private fun showContactsBottomSheet() {
         if (isFinishing || isDestroyed) return
 
-        val dialog = BottomSheetDialog(this)
-        val dialogBinding = DialogContactsBinding.inflate(layoutInflater)
-        dialog.setContentView(dialogBinding.root)
+        try {
+            val dialog = BottomSheetDialog(this)
+            val dialogBinding = DialogContactsBinding.inflate(layoutInflater)
+            dialog.setContentView(dialogBinding.root)
 
-        val contactAdapter = ContactAdapter { selectedUser ->
-            dialog.dismiss()
-            viewModel.startChatWithUser(selectedUser)
-        }
+            val contactAdapter = ContactAdapter { selectedUser ->
+                try {
+                    if (dialog.isShowing) {
+                        dialog.dismiss()
+                    }
+                } catch (_: Throwable) {}
+                viewModel.startChatWithUser(selectedUser)
+            }
 
-        dialogBinding.rvContacts.apply {
-            layoutManager = LinearLayoutManager(this@MainActivity)
-            adapter = contactAdapter
-        }
+            dialogBinding.rvContacts.apply {
+                layoutManager = LinearLayoutManager(this@MainActivity)
+                adapter = contactAdapter
+            }
 
-        dialogBinding.progressContacts.visibility = View.VISIBLE
-        dialogBinding.tvEmptyContacts.visibility = View.GONE
+            dialogBinding.progressContacts.visibility = View.VISIBLE
+            dialogBinding.tvEmptyContacts.visibility = View.GONE
 
-        // Trigger fetch
-        viewModel.fetchRegisteredUsers()
+            // Trigger fetch
+            viewModel.fetchRegisteredUsers()
 
-        var dialogJob: Job? = null
-        dialogJob = lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.registeredUsers.collectLatest { users ->
-                    if (!dialog.isShowing || isFinishing || isDestroyed) return@collectLatest
-                    dialogBinding.progressContacts.visibility = View.GONE
-                    if (users.isEmpty()) {
-                        dialogBinding.tvEmptyContacts.visibility = View.VISIBLE
-                    } else {
-                        dialogBinding.tvEmptyContacts.visibility = View.GONE
-                        contactAdapter.submitList(users)
+            var dialogJob: Job? = null
+            dialogJob = lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    viewModel.registeredUsers.collectLatest { users ->
+                        if (!dialog.isShowing || isFinishing || isDestroyed) return@collectLatest
+                        dialogBinding.progressContacts.visibility = View.GONE
+                        if (users.isEmpty()) {
+                            dialogBinding.tvEmptyContacts.visibility = View.VISIBLE
+                        } else {
+                            dialogBinding.tvEmptyContacts.visibility = View.GONE
+                            contactAdapter.submitList(users)
+                        }
                     }
                 }
             }
-        }
 
-        dialog.setOnDismissListener {
-            dialogJob.cancel()
-        }
+            dialog.setOnDismissListener {
+                dialogJob?.cancel()
+            }
 
-        dialog.show()
+            dialog.show()
+        } catch (e: Throwable) {
+            Toast.makeText(this, "Failed to open contacts: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun observeViewModel() {
@@ -317,9 +344,10 @@ class MainActivity : AppCompatActivity() {
                     viewModel.currentRecipient.collectLatest { recipient ->
                         if (isFinishing || isDestroyed) return@collectLatest
                         if (recipient != null) {
-                            binding.tvChatPartnerName.text = "Chat: ${recipient.name}"
+                            binding.tvChatPartnerName.text = "Chat: ${recipient.displayName}"
                         } else {
-                            binding.tvChatPartnerName.text = "Chat Room #${viewModel.activeChatId.value}"
+                            val activeId = viewModel.activeChatId.value
+                            binding.tvChatPartnerName.text = if (activeId > 0) "Chat Room #$activeId" else "Select Contact"
                         }
                     }
                 }
@@ -408,9 +436,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleSelectedPhoto(uri: Uri) {
         try {
+            val chatId = viewModel.activeChatId.value
+            if (chatId <= 0) {
+                Toast.makeText(this, "Please select a contact before attaching photos", Toast.LENGTH_SHORT).show()
+                return
+            }
             val tempFile = copyUriToTempFile(uri)
             if (tempFile != null) {
-                val chatId = viewModel.activeChatId.value
                 viewModel.uploadAndSendPhoto(
                     chatId = chatId,
                     photoFile = tempFile,
@@ -419,7 +451,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 Toast.makeText(this, "Failed to load selected photo", Toast.LENGTH_SHORT).show()
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Toast.makeText(this, "Error processing photo: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
@@ -434,23 +466,27 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             file
-        } catch (e: Exception) {
+        } catch (_: Throwable) {
             null
         }
     }
 
     private fun getFileNameFromUri(uri: Uri): String? {
-        var name: String? = null
-        val cursor = contentResolver.query(uri, null, null, null, null)
-        cursor?.use {
-            if (it.moveToFirst()) {
-                val index = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (index != -1) {
-                    name = it.getString(index)
+        return try {
+            var name: String? = null
+            val cursor = contentResolver.query(uri, null, null, null, null)
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val index = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (index != -1) {
+                        name = it.getString(index)
+                    }
                 }
             }
+            name
+        } catch (_: Throwable) {
+            null
         }
-        return name
     }
 
     private fun redirectToAuth() {
@@ -466,7 +502,9 @@ class MainActivity : AppCompatActivity() {
         typingHandler.removeCallbacks(stopTypingRunnable)
         if (::viewModel.isInitialized) {
             val chatId = viewModel.activeChatId.value
-            viewModel.leaveChat(chatId)
+            if (chatId > 0) {
+                viewModel.leaveChat(chatId)
+            }
         }
     }
 }

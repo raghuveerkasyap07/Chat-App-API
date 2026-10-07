@@ -44,7 +44,7 @@ data class SendMessageRequest(
 )
 
 data class AttachmentUploadResponse(
-    val url: String,
+    val url: String = "",
     @SerializedName("file_name", alternate = ["fileName", "filename"])
     val fileName: String? = null,
     @SerializedName("file_size", alternate = ["fileSize", "size"])

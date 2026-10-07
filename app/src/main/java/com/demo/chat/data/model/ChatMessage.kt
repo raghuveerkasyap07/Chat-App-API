@@ -56,6 +56,16 @@ data class ChatMessage(
         get() = (type == null || type.equals(TYPE_TEXT, ignoreCase = true)) && mediaUrl.isNullOrBlank()
 
     fun isSentBy(currentUserId: Int): Boolean {
-        return senderId == currentUserId || (sender?.id == currentUserId && currentUserId > 0)
+        return (currentUserId > 0 && senderId == currentUserId) || (sender?.id == currentUserId && currentUserId > 0)
+    }
+
+    fun getEffectiveMediaUrl(baseUrl: String? = null): String? {
+        val url = mediaUrl?.takeIf { it.isNotBlank() } ?: return null
+        if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("content://") || url.startsWith("file://")) {
+            return url
+        }
+        val base = (baseUrl ?: "").trimEnd('/')
+        val path = if (url.startsWith("/")) url else "/$url"
+        return if (base.isNotBlank()) "$base$path" else url
     }
 }

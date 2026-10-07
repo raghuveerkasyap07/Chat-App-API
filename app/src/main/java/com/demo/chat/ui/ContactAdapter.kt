@@ -31,8 +31,8 @@ class ContactAdapter(
     ) : RecyclerView.ViewHolder(binding.root) {
 
         fun bind(user: User) {
-            binding.tvContactName.text = user.name
-            binding.tvContactEmail.text = user.email
+            binding.tvContactName.text = user.displayName
+            binding.tvContactEmail.text = user.email ?: ""
             binding.viewOnlineDot.visibility = if (user.isOnline == true) View.VISIBLE else View.GONE
 
             binding.root.setOnClickListener {

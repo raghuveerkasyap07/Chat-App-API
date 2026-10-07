@@ -110,7 +110,10 @@ class SocketIOManager(
                     data.optInt("id", -1).takeIf { it > 0 } ?: data.optString("id").toIntOrNull()
                 } else null
 
-                val msgChatId = data.optString("chatId", data.optString("chat_id", "0")).toIntOrNull() ?: 0
+                val msgChatId = data.optString("chatId", data.optString("chat_id", "")).toIntOrNull()
+                    ?: data.optJSONObject("chat")?.optInt("id")
+                    ?: data.optJSONObject("conversation")?.optInt("id")
+                    ?: 0
                 val senderId = data.optInt("senderId", data.optInt("sender_id", -1))
                 val senderName = data.optString("senderName", data.optString("sender_name", ""))
                 val messageText = data.optString("message", "")
@@ -223,19 +226,31 @@ class SocketIOManager(
     // --- Room Lifecycle ---
 
     fun joinChat(chatId: Int): Boolean {
+        if (chatId <= 0) return false
         val s = socket ?: return false
-        val joinData = JSONObject().apply { put("chatId", chatId.toString()) }
-        s.emit("join_chat", joinData)
-        ChatLogger.d(TAG, "Emitted join_chat for $chatId")
-        return true
+        return try {
+            val joinData = JSONObject().apply { put("chatId", chatId.toString()) }
+            s.emit("join_chat", joinData)
+            ChatLogger.d(TAG, "Emitted join_chat for $chatId")
+            true
+        } catch (e: Throwable) {
+            ChatLogger.e(TAG, "Failed to emit join_chat", e)
+            false
+        }
     }
 
     fun leaveChat(chatId: Int): Boolean {
+        if (chatId <= 0) return false
         val s = socket ?: return false
-        val leaveData = JSONObject().apply { put("chatId", chatId.toString()) }
-        s.emit("leave_chat", leaveData)
-        ChatLogger.d(TAG, "Emitted leave_chat for $chatId")
-        return true
+        return try {
+            val leaveData = JSONObject().apply { put("chatId", chatId.toString()) }
+            s.emit("leave_chat", leaveData)
+            ChatLogger.d(TAG, "Emitted leave_chat for $chatId")
+            true
+        } catch (e: Throwable) {
+            ChatLogger.e(TAG, "Failed to emit leave_chat", e)
+            false
+        }
     }
 
     // --- Sending Messages ---
@@ -246,62 +261,92 @@ class SocketIOManager(
         message: String,
         mediaUrl: String? = null
     ): Boolean {
+        if (chatId <= 0) return false
         val s = socket ?: return false
-        val messageData = JSONObject().apply {
-            put("chatId", chatId.toString())
-            if (recipientId > 0) {
-                put("recipientId", recipientId)
+        return try {
+            val messageData = JSONObject().apply {
+                put("chatId", chatId.toString())
+                if (recipientId > 0) {
+                    put("recipientId", recipientId)
+                }
+                put("message", message)
+                put("mediaUrl", mediaUrl ?: JSONObject.NULL)
             }
-            put("message", message)
-            put("mediaUrl", mediaUrl ?: JSONObject.NULL)
+            s.emit("send_message", messageData)
+            ChatLogger.d(TAG, "Emitted send_message: chatId=$chatId, recipientId=$recipientId")
+            true
+        } catch (e: Throwable) {
+            ChatLogger.e(TAG, "Failed to emit send_message", e)
+            false
         }
-        s.emit("send_message", messageData)
-        ChatLogger.d(TAG, "Emitted send_message: chatId=$chatId, recipientId=$recipientId")
-        return true
     }
 
     // --- Delivery & Seen Acknowledgment ---
 
     fun markMessageDelivered(chatId: Int, messageId: Int? = null): Boolean {
+        if (chatId <= 0) return false
         val s = socket ?: return false
-        val deliveredData = JSONObject().apply {
-            put("chatId", chatId.toString())
-            if (messageId != null) {
-                put("messageId", messageId)
+        return try {
+            val deliveredData = JSONObject().apply {
+                put("chatId", chatId.toString())
+                if (messageId != null) {
+                    put("messageId", messageId)
+                }
             }
+            s.emit("message_delivered", deliveredData)
+            ChatLogger.d(TAG, "Emitted message_delivered for chat=$chatId, msg=$messageId")
+            true
+        } catch (e: Throwable) {
+            ChatLogger.e(TAG, "Failed to emit message_delivered", e)
+            false
         }
-        s.emit("message_delivered", deliveredData)
-        ChatLogger.d(TAG, "Emitted message_delivered for chat=$chatId, msg=$messageId")
-        return true
     }
 
     fun markMessageSeen(chatId: Int, messageId: Int? = null): Boolean {
+        if (chatId <= 0) return false
         val s = socket ?: return false
-        val seenData = JSONObject().apply {
-            put("chatId", chatId.toString())
-            if (messageId != null) {
-                put("messageId", messageId)
+        return try {
+            val seenData = JSONObject().apply {
+                put("chatId", chatId.toString())
+                if (messageId != null) {
+                    put("messageId", messageId)
+                }
             }
+            s.emit("message_seen", seenData)
+            ChatLogger.d(TAG, "Emitted message_seen for chat=$chatId, msg=$messageId")
+            true
+        } catch (e: Throwable) {
+            ChatLogger.e(TAG, "Failed to emit message_seen", e)
+            false
         }
-        s.emit("message_seen", seenData)
-        ChatLogger.d(TAG, "Emitted message_seen for chat=$chatId, msg=$messageId")
-        return true
     }
 
     // --- Typing Indicators ---
 
     fun emitTyping(chatId: Int): Boolean {
+        if (chatId <= 0) return false
         val s = socket ?: return false
-        val data = JSONObject().apply { put("chatId", chatId.toString()) }
-        s.emit("typing", data)
-        return true
+        return try {
+            val data = JSONObject().apply { put("chatId", chatId.toString()) }
+            s.emit("typing", data)
+            true
+        } catch (e: Throwable) {
+            ChatLogger.e(TAG, "Failed to emit typing", e)
+            false
+        }
     }
 
     fun emitStopTyping(chatId: Int): Boolean {
+        if (chatId <= 0) return false
         val s = socket ?: return false
-        val data = JSONObject().apply { put("chatId", chatId.toString()) }
-        s.emit("stop_typing", data)
-        return true
+        return try {
+            val data = JSONObject().apply { put("chatId", chatId.toString()) }
+            s.emit("stop_typing", data)
+            true
+        } catch (e: Throwable) {
+            ChatLogger.e(TAG, "Failed to emit stop_typing", e)
+            false
+        }
     }
 
     fun disconnect() {

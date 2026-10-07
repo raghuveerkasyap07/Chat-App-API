@@ -67,9 +67,10 @@ class MessageAdapter(
             }
 
             // Bind photo attachment if TYPE_IMAGE or mediaUrl present
-            if (message.isImage && !message.mediaUrl.isNullOrBlank()) {
+            val effectiveImageUrl = message.getEffectiveMediaUrl()
+            if (message.isImage && !effectiveImageUrl.isNullOrBlank()) {
                 binding.ivAttachment.visibility = View.VISIBLE
-                binding.ivAttachment.load(message.mediaUrl) {
+                binding.ivAttachment.load(effectiveImageUrl) {
                     crossfade(true)
                     placeholder(android.R.drawable.ic_menu_gallery)
                     error(android.R.drawable.ic_dialog_alert)

@@ -32,7 +32,7 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     // Active Chat ID
-    private val _activeChatId = MutableStateFlow(1)
+    private val _activeChatId = MutableStateFlow(0)
     val activeChatId: StateFlow<Int> = _activeChatId.asStateFlow()
 
     // Active Recipient Partner
@@ -192,13 +192,16 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
                     fetchRegisteredUsers()
                 }
             }.onFailure {
-                joinChat(_activeChatId.value)
-                loadMessages(_activeChatId.value)
+                if (_activeChatId.value > 0) {
+                    joinChat(_activeChatId.value)
+                    loadMessages(_activeChatId.value)
+                }
             }
         }
     }
 
     fun joinChat(chatId: Int) {
+        if (chatId <= 0) return
         _activeChatId.value = chatId
         chatClient.joinSocketIOChat(chatId)
 
@@ -207,19 +210,22 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
         viewModelScope.launch {
             try {
                 chatClient.markChatSeenRest(chatId)
-            } catch (_: Exception) {}
+            } catch (_: Throwable) {}
         }
     }
 
     fun leaveChat(chatId: Int) {
+        if (chatId <= 0) return
         chatClient.leaveSocketIOChat(chatId)
     }
 
     fun emitTyping(chatId: Int) {
+        if (chatId <= 0) return
         chatClient.emitTyping(chatId)
     }
 
     fun emitStopTyping(chatId: Int) {
+        if (chatId <= 0) return
         chatClient.emitStopTyping(chatId)
     }
 
@@ -239,6 +245,7 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
     }
 
     fun startChatWithUser(recipient: User) {
+        if (recipient.id <= 0) return
         viewModelScope.launch {
             _isLoading.value = true
             val result = chatClient.createOrGetChat(recipient.id)
@@ -246,14 +253,14 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
 
             result.onSuccess { chat ->
                 _currentRecipient.value = recipient
-                _partnerIsOnline.value = null
+                _partnerIsOnline.value = recipient.isOnline
                 _partnerTypingText.value = null
                 _messageList.value = emptyList()
 
                 joinChat(chat.id)
                 loadMessages(chat.id)
 
-                _statusEvent.tryEmit("Chatting with ${recipient.name}")
+                _statusEvent.tryEmit("Chatting with ${recipient.displayName}")
             }.onFailure { err ->
                 _statusEvent.tryEmit("Failed to create chat: ${err.localizedMessage}")
             }
@@ -261,6 +268,7 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
     }
 
     fun loadMessages(chatId: Int) {
+        if (chatId <= 0) return
         viewModelScope.launch {
             _isLoading.value = true
             val result = chatClient.getChatMessages(chatId)
@@ -275,6 +283,10 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
     }
 
     fun sendTextMessage(chatId: Int, text: String) {
+        if (chatId <= 0) {
+            _statusEvent.tryEmit("Please select a contact to start chatting")
+            return
+        }
         val partnerId = _currentRecipient.value?.id ?: 0
 
         // 1. Emit send_message via Socket.IO
@@ -288,13 +300,13 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
         viewModelScope.launch {
             try {
                 chatClient.sendTextMessageRest(chatId, text)
-            } catch (_: Exception) {}
+            } catch (_: Throwable) {}
         }
 
         // 3. Optimistically add message to state with status = "sent" (single tick ✓)
         val timeStr = try {
             SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             System.currentTimeMillis().toString()
         }
 
@@ -316,6 +328,10 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
     }
 
     fun uploadAndSendPhoto(chatId: Int, photoFile: File, caption: String = "") {
+        if (chatId <= 0) {
+            _statusEvent.tryEmit("Please select a contact before sending photos")
+            return
+        }
         viewModelScope.launch {
             _isLoading.value = true
             val result = chatClient.uploadPhotoAndSendOverSocket(chatId, photoFile, caption)
