@@ -256,6 +256,19 @@ class MainActivity : AppCompatActivity() {
             showContactsBottomSheet()
         }
 
+        binding.tvChatPartnerName.setOnLongClickListener {
+            val chatId = viewModel.activeChatId.value.let { if (it > 0) it else 1 }
+            com.demo.chat.utils.NotificationHelper.showChatNotification(
+                this@MainActivity,
+                "Test Local Notification",
+                "This is a local notification test with media preview!",
+                chatId,
+                "https://picsum.photos/300/200"
+            )
+            Toast.makeText(this@MainActivity, "Test local notification triggered!", Toast.LENGTH_SHORT).show()
+            true
+        }
+
         binding.btnLogout.setOnClickListener {
             viewModel.logout()
             Toast.makeText(this, "Logged out successfully", Toast.LENGTH_SHORT).show()
