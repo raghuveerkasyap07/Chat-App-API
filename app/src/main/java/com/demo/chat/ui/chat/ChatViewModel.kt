@@ -54,9 +54,35 @@ class ChatViewModel(
                             current + msg
                         }
                     }
+
+                    // Acknowledge delivery and seen for incoming messages from other users
+                    if (msg.senderId != currentUserId && msg.id != null) {
+                        chatClient.sendDelivered(chatId, msg.id)
+                        chatClient.sendSeen(chatId, msg.id)
+                    }
                 }
             }
         }
+    }
+
+    fun leaveChat() {
+        chatClient.leaveChat(chatId)
+    }
+
+    fun sendTyping() {
+        chatClient.sendTyping(chatId)
+    }
+
+    fun sendStopTyping() {
+        chatClient.sendStopTyping(chatId)
+    }
+
+    fun sendSeen(messageId: Int? = null) {
+        chatClient.sendSeen(chatId, messageId)
+    }
+
+    fun sendDelivered(messageId: Int? = null) {
+        chatClient.sendDelivered(chatId, messageId)
     }
 
     fun loadMessages() {

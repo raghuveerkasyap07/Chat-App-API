@@ -70,6 +70,11 @@ class ChatActivity : AppCompatActivity() {
         observeViewModel()
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        viewModel.leaveChat()
+    }
+
     private fun setupWindowInsets() {
         val initialTopPadding = binding.appBarLayout.paddingTop
 
@@ -126,6 +131,23 @@ class ChatActivity : AppCompatActivity() {
 
     private fun setupListeners() {
         binding.etMessageInput.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI
+
+        binding.etMessageInput.addTextChangedListener(object : android.text.TextWatcher {
+            private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+            private val stopTypingRunnable = Runnable {
+                viewModel.sendStopTyping()
+            }
+
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                if (!s.isNullOrBlank()) {
+                    viewModel.sendTyping()
+                    handler.removeCallbacks(stopTypingRunnable)
+                    handler.postDelayed(stopTypingRunnable, 1500)
+                }
+            }
+            override fun afterTextChanged(s: android.text.Editable?) {}
+        })
 
         binding.btnSendMessage.setOnClickListener {
             val text = binding.etMessageInput.text.toString().trim()
