@@ -1,88 +1,65 @@
 package com.demo.chat.ui
 
-import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.LinearLayout
-import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
-import com.demo.chat.R
 import com.demo.chat.data.model.ChatMessage
-import com.demo.chat.databinding.ItemChatMessageBinding
+import com.demo.chat.databinding.ItemChatReceivedBinding
+import com.demo.chat.databinding.ItemChatReceivedImageBinding
+import com.demo.chat.databinding.ItemChatSentBinding
+import com.demo.chat.databinding.ItemChatSentImageBinding
 
 class MessageAdapter(
-    private val currentUserId: Int
-) : ListAdapter<ChatMessage, MessageAdapter.MessageViewHolder>(MessageDiffCallback) {
+    private val currentUserId: Int,
+    private val onImageClick: (String) -> Unit
+) : ListAdapter<ChatMessage, RecyclerView.ViewHolder>(MessageDiffCallback) {
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MessageViewHolder {
-        val binding = ItemChatMessageBinding.inflate(
-            LayoutInflater.from(parent.context),
-            parent,
-            false
-        )
-        return MessageViewHolder(binding)
+    override fun getItemViewType(position: Int): Int {
+        val msg = getItem(position)
+        val isOutgoing = msg.isSentBy(currentUserId)
+        val effectiveUrl = msg.getEffectiveMediaUrl()
+        val isImage = msg.isImage || !effectiveUrl.isNullOrBlank()
+
+        return when {
+            isOutgoing && isImage -> TYPE_SENT_IMAGE
+            isOutgoing -> TYPE_SENT_TEXT
+            isImage -> TYPE_RECEIVED_IMAGE
+            else -> TYPE_RECEIVED_TEXT
+        }
     }
 
-    override fun onBindViewHolder(holder: MessageViewHolder, position: Int) {
-        holder.bind(getItem(position))
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+        val inflater = LayoutInflater.from(parent.context)
+        return when (viewType) {
+            TYPE_SENT_IMAGE -> SentImageViewHolder(ItemChatSentImageBinding.inflate(inflater, parent, false))
+            TYPE_SENT_TEXT -> SentTextViewHolder(ItemChatSentBinding.inflate(inflater, parent, false))
+            TYPE_RECEIVED_IMAGE -> ReceivedImageViewHolder(ItemChatReceivedImageBinding.inflate(inflater, parent, false))
+            else -> ReceivedTextViewHolder(ItemChatReceivedBinding.inflate(inflater, parent, false))
+        }
     }
 
-    inner class MessageViewHolder(
-        private val binding: ItemChatMessageBinding
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+        val message = getItem(position)
+        when (holder) {
+            is SentImageViewHolder -> holder.bind(message, onImageClick)
+            is SentTextViewHolder -> holder.bind(message, currentUserId)
+            is ReceivedImageViewHolder -> holder.bind(message, onImageClick)
+            is ReceivedTextViewHolder -> holder.bind(message)
+        }
+    }
+
+    class SentTextViewHolder(
+        private val binding: ItemChatSentBinding
     ) : RecyclerView.ViewHolder(binding.root) {
-
-        fun bind(message: ChatMessage) {
-            val isOutgoing = message.isSentBy(currentUserId)
-            val context = binding.root.context
-
-            // Position bubble
-            val params = binding.bubbleLayout.layoutParams as LinearLayout.LayoutParams
-            if (isOutgoing) {
-                params.gravity = Gravity.END
-                binding.bubbleLayout.setBackgroundColor(ContextCompat.getColor(context, R.color.bubble_outgoing))
-                binding.tvSenderName.visibility = View.GONE
-            } else {
-                params.gravity = Gravity.START
-                binding.bubbleLayout.setBackgroundColor(ContextCompat.getColor(context, R.color.bubble_incoming))
-                if (message.sender != null) {
-                    binding.tvSenderName.text = message.sender.displayName
-                    binding.tvSenderName.visibility = View.VISIBLE
-                } else {
-                    binding.tvSenderName.visibility = View.GONE
-                }
-            }
-            binding.bubbleLayout.layoutParams = params
-
-            // Bind text
-            val textContent = message.message ?: ""
-            if (textContent.isNotBlank()) {
-                binding.tvMessageBody.text = textContent
-                binding.tvMessageBody.visibility = View.VISIBLE
-            } else {
-                binding.tvMessageBody.visibility = View.GONE
-            }
-
-            // Bind photo attachment if TYPE_IMAGE or mediaUrl present
-            val effectiveImageUrl = message.getEffectiveMediaUrl()
-            if (message.isImage && !effectiveImageUrl.isNullOrBlank()) {
-                binding.ivAttachment.visibility = View.VISIBLE
-                binding.ivAttachment.load(effectiveImageUrl) {
-                    crossfade(true)
-                    placeholder(android.R.drawable.ic_menu_gallery)
-                    error(android.R.drawable.ic_dialog_alert)
-                }
-            } else {
-                binding.ivAttachment.visibility = View.GONE
-            }
-
-            // Timestamp & Status Ticks
+        fun bind(message: ChatMessage, currentUserId: Int) {
+            binding.tvMessageBody.text = message.message ?: ""
             binding.tvTimestamp.text = message.createdAt ?: ""
 
-            if (isOutgoing) {
+            if (message.isSentBy(currentUserId)) {
                 binding.tvStatusTicks.visibility = View.VISIBLE
                 when {
                     message.isSeen -> {
@@ -100,6 +77,91 @@ class MessageAdapter(
                 }
             } else {
                 binding.tvStatusTicks.visibility = View.GONE
+            }
+        }
+    }
+
+    class SentImageViewHolder(
+        private val binding: ItemChatSentImageBinding
+    ) : RecyclerView.ViewHolder(binding.root) {
+        fun bind(message: ChatMessage, onImageClick: (String) -> Unit) {
+            binding.tvTimestamp.text = message.createdAt ?: ""
+            val imageUrl = message.getEffectiveMediaUrl()
+
+            if (!imageUrl.isNullOrBlank()) {
+                binding.ivAttachment.visibility = View.VISIBLE
+                binding.ivAttachment.load(imageUrl) {
+                    crossfade(true)
+                    placeholder(android.R.drawable.ic_menu_gallery)
+                    error(android.R.drawable.ic_dialog_alert)
+                }
+                binding.ivAttachment.setOnClickListener {
+                    onImageClick(imageUrl)
+                }
+            } else {
+                binding.ivAttachment.visibility = View.GONE
+            }
+
+            binding.tvStatusTicks.visibility = View.VISIBLE
+            when {
+                message.isSeen -> {
+                    binding.tvStatusTicks.text = "✓✓"
+                    binding.tvStatusTicks.setTextColor(android.graphics.Color.parseColor("#34B7F1"))
+                }
+                message.isDelivered -> {
+                    binding.tvStatusTicks.text = "✓✓"
+                    binding.tvStatusTicks.setTextColor(android.graphics.Color.parseColor("#888888"))
+                }
+                else -> {
+                    binding.tvStatusTicks.text = "✓"
+                    binding.tvStatusTicks.setTextColor(android.graphics.Color.parseColor("#888888"))
+                }
+            }
+        }
+    }
+
+    class ReceivedTextViewHolder(
+        private val binding: ItemChatReceivedBinding
+    ) : RecyclerView.ViewHolder(binding.root) {
+        fun bind(message: ChatMessage) {
+            binding.tvMessageBody.text = message.message ?: ""
+            binding.tvTimestamp.text = message.createdAt ?: ""
+
+            if (message.sender != null) {
+                binding.tvSenderName.text = message.sender.displayName
+                binding.tvSenderName.visibility = View.VISIBLE
+            } else {
+                binding.tvSenderName.visibility = View.GONE
+            }
+        }
+    }
+
+    class ReceivedImageViewHolder(
+        private val binding: ItemChatReceivedImageBinding
+    ) : RecyclerView.ViewHolder(binding.root) {
+        fun bind(message: ChatMessage, onImageClick: (String) -> Unit) {
+            binding.tvTimestamp.text = message.createdAt ?: ""
+
+            if (message.sender != null) {
+                binding.tvSenderName.text = message.sender.displayName
+                binding.tvSenderName.visibility = View.VISIBLE
+            } else {
+                binding.tvSenderName.visibility = View.GONE
+            }
+
+            val imageUrl = message.getEffectiveMediaUrl()
+            if (!imageUrl.isNullOrBlank()) {
+                binding.ivAttachment.visibility = View.VISIBLE
+                binding.ivAttachment.load(imageUrl) {
+                    crossfade(true)
+                    placeholder(android.R.drawable.ic_menu_gallery)
+                    error(android.R.drawable.ic_dialog_alert)
+                }
+                binding.ivAttachment.setOnClickListener {
+                    onImageClick(imageUrl)
+                }
+            } else {
+                binding.ivAttachment.visibility = View.GONE
             }
         }
     }
@@ -139,6 +201,11 @@ class MessageAdapter(
     }
 
     companion object MessageDiffCallback : DiffUtil.ItemCallback<ChatMessage>() {
+        const val TYPE_SENT_TEXT = 1
+        const val TYPE_SENT_IMAGE = 2
+        const val TYPE_RECEIVED_TEXT = 3
+        const val TYPE_RECEIVED_IMAGE = 4
+
         override fun areItemsTheSame(oldItem: ChatMessage, newItem: ChatMessage): Boolean {
             return if (oldItem.id != null && newItem.id != null) {
                 oldItem.id == newItem.id

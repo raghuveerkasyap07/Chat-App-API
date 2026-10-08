@@ -23,6 +23,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
+import coil.load
 import com.demo.chat.ChatApplication
 import com.demo.chat.R
 import com.demo.chat.data.model.ConnectionState
@@ -185,12 +186,37 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupRecyclerView(currentUserId: Int) {
-        messageAdapter = MessageAdapter(currentUserId)
+        messageAdapter = MessageAdapter(currentUserId) { imageUrl ->
+            showImagePreviewDialog(imageUrl)
+        }
         binding.recyclerViewMessages.apply {
             layoutManager = LinearLayoutManager(this@MainActivity).apply {
                 stackFromEnd = true
             }
             adapter = messageAdapter
+        }
+    }
+
+    private fun showImagePreviewDialog(imageUrl: String) {
+        if (isFinishing || isDestroyed) return
+        try {
+            val dialog = android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+            val dialogBinding = com.demo.chat.databinding.DialogImagePreviewBinding.inflate(layoutInflater)
+            dialog.setContentView(dialogBinding.root)
+
+            dialogBinding.ivFullscreenPreview.load(imageUrl) {
+                crossfade(true)
+                placeholder(android.R.drawable.ic_menu_gallery)
+                error(android.R.drawable.ic_dialog_alert)
+            }
+
+            dialogBinding.btnClosePreview.setOnClickListener {
+                dialog.dismiss()
+            }
+
+            dialog.show()
+        } catch (e: Throwable) {
+            Toast.makeText(this, "Failed to open image preview: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
