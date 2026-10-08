@@ -338,10 +338,75 @@ class MainViewModel(val chatClient: ChatClient) : ViewModel() {
             _isLoading.value = false
 
             result.onSuccess { msg ->
-                _messageList.update { it + msg }
+                _messageList.update { current ->
+                    if (current.none { it.id == msg.id && msg.id != null }) current + msg else current
+                }
                 _statusEvent.tryEmit("Photo sent!")
             }.onFailure {
                 _statusEvent.tryEmit("Photo upload/send failed: ${it.localizedMessage}")
+            }
+        }
+    }
+
+    fun uploadAndSendVideo(chatId: Int, videoFile: File, caption: String = "") {
+        if (chatId <= 0) {
+            _statusEvent.tryEmit("Please select a contact before sending videos")
+            return
+        }
+        viewModelScope.launch {
+            _isLoading.value = true
+            val result = chatClient.uploadVideoAndSendOverSocket(chatId, videoFile, caption)
+            _isLoading.value = false
+
+            result.onSuccess { msg ->
+                _messageList.update { current ->
+                    if (current.none { it.id == msg.id && msg.id != null }) current + msg else current
+                }
+                _statusEvent.tryEmit("Video sent!")
+            }.onFailure {
+                _statusEvent.tryEmit("Video upload/send failed: ${it.localizedMessage}")
+            }
+        }
+    }
+
+    fun uploadAndSendAudio(chatId: Int, audioFile: File, caption: String = "") {
+        if (chatId <= 0) {
+            _statusEvent.tryEmit("Please select a contact before sending audio")
+            return
+        }
+        viewModelScope.launch {
+            _isLoading.value = true
+            val result = chatClient.uploadAudioAndSendOverSocket(chatId, audioFile, caption)
+            _isLoading.value = false
+
+            result.onSuccess { msg ->
+                _messageList.update { current ->
+                    if (current.none { it.id == msg.id && msg.id != null }) current + msg else current
+                }
+                _statusEvent.tryEmit("Audio sent!")
+            }.onFailure {
+                _statusEvent.tryEmit("Audio upload/send failed: ${it.localizedMessage}")
+            }
+        }
+    }
+
+    fun uploadAndSendFile(chatId: Int, file: File, caption: String = "") {
+        if (chatId <= 0) {
+            _statusEvent.tryEmit("Please select a contact before sending files")
+            return
+        }
+        viewModelScope.launch {
+            _isLoading.value = true
+            val result = chatClient.uploadFileAndSendOverSocket(chatId, file, caption)
+            _isLoading.value = false
+
+            result.onSuccess { msg ->
+                _messageList.update { current ->
+                    if (current.none { it.id == msg.id && msg.id != null }) current + msg else current
+                }
+                _statusEvent.tryEmit("File sent!")
+            }.onFailure {
+                _statusEvent.tryEmit("File upload/send failed: ${it.localizedMessage}")
             }
         }
     }

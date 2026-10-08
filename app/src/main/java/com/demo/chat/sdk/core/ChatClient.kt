@@ -161,6 +161,70 @@ class ChatClient private constructor(
         return Result.success(chatMessage)
     }
 
+    /**
+     * Generic media upload flow: Uploads media (video, audio, document) and transmits over Socket.IO.
+     */
+    suspend fun uploadMediaAndSendOverSocket(
+        chatId: Int,
+        file: File,
+        mimeType: String,
+        caption: String = "",
+        messageType: String = ChatMessage.TYPE_FILE,
+        mediaTypeStr: String = "file"
+    ): Result<ChatMessage> {
+        val uploadResult = media.uploadMedia(chatId, file, mimeType, caption, messageType)
+        if (uploadResult.isFailure) {
+            return Result.failure(uploadResult.exceptionOrNull() ?: Exception("Media upload failed"))
+        }
+
+        val attachment = uploadResult.getOrThrow()
+        val content = if (caption.isNotBlank()) caption else file.name
+
+        val sentOverSocket = socketIOManager.sendMessage(
+            chatId = chatId,
+            recipientId = 0,
+            message = content,
+            mediaUrl = attachment.url,
+            mediaType = mediaTypeStr
+        )
+
+        val chatMessage = ChatMessage(
+            chatId = chatId,
+            senderId = session.getUserId(),
+            message = content,
+            type = messageType,
+            mediaUrl = attachment.url,
+            mediaType = mediaTypeStr,
+            metadata = attachment.metadata,
+            createdAt = System.currentTimeMillis().toString(),
+            sender = session.getUser(),
+            status = if (sentOverSocket) ChatMessage.STATUS_SENT else ChatMessage.STATUS_SENDING
+        )
+
+        return Result.success(chatMessage)
+    }
+
+    suspend fun uploadVideoAndSendOverSocket(
+        chatId: Int,
+        videoFile: File,
+        caption: String = "",
+        mimeType: String = "video/mp4"
+    ): Result<ChatMessage> = uploadMediaAndSendOverSocket(chatId, videoFile, mimeType, caption, ChatMessage.TYPE_VIDEO, "video")
+
+    suspend fun uploadAudioAndSendOverSocket(
+        chatId: Int,
+        audioFile: File,
+        caption: String = "",
+        mimeType: String = "audio/mpeg"
+    ): Result<ChatMessage> = uploadMediaAndSendOverSocket(chatId, audioFile, mimeType, caption, ChatMessage.TYPE_AUDIO, "audio")
+
+    suspend fun uploadFileAndSendOverSocket(
+        chatId: Int,
+        file: File,
+        caption: String = "",
+        mimeType: String = "application/octet-stream"
+    ): Result<ChatMessage> = uploadMediaAndSendOverSocket(chatId, file, mimeType, caption, ChatMessage.TYPE_FILE, "file")
+
     // --- WebSocket Operations ---
 
     fun connectWebSocket(chatId: Int? = null) {
@@ -210,9 +274,10 @@ class ChatClient private constructor(
         chatId: Int,
         recipientId: Int,
         message: String,
-        mediaUrl: String? = null
+        mediaUrl: String? = null,
+        mediaType: String? = null
     ): Boolean {
-        return socketIOManager.sendMessage(chatId, recipientId, message, mediaUrl)
+        return socketIOManager.sendMessage(chatId, recipientId, message, mediaUrl, mediaType)
     }
 
     fun markMessageDelivered(chatId: Int, messageId: Int? = null): Boolean {
