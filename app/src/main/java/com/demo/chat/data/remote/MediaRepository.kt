@@ -71,6 +71,100 @@ class MediaRepository(
     }
 
     /**
+     * Multipart video upload returning video URL and metadata.
+     */
+    suspend fun uploadVideo(
+        chatId: Int,
+        file: File,
+        mimeType: String = "video/mp4",
+        description: String? = null
+    ): Result<AttachmentUploadResponse> = withContext(Dispatchers.IO) {
+        try {
+            if (!file.exists() || !file.canRead()) {
+                return@withContext Result.failure(IllegalArgumentException("File does not exist or cannot be read: ${file.absolutePath}"))
+            }
+
+            val mediaType = mimeType.toMediaTypeOrNull() ?: "video/*".toMediaTypeOrNull()
+            val requestFile = file.asRequestBody(mediaType)
+            val filePart = MultipartBody.Part.createFormData("file", file.name, requestFile)
+
+            val descBody = description?.toRequestBody("text/plain".toMediaTypeOrNull())
+            val typeBody = "TYPE_VIDEO".toRequestBody("text/plain".toMediaTypeOrNull())
+
+            val response = apiService.uploadAttachment(
+                chatId = chatId,
+                file = filePart,
+                description = descBody,
+                type = typeBody
+            )
+
+            if (response.isSuccessful) {
+                val body = response.body()
+                val parsed = parseAttachmentResponse(body?.data, fallbackFileName = file.name, fallbackFileSize = file.length(), fallbackMime = mimeType)
+                if (parsed != null) {
+                    ChatLogger.d(TAG, "Uploaded video successfully: url=${parsed.url}")
+                    Result.success(parsed)
+                } else {
+                    Result.failure(IllegalStateException(body?.message ?: "Failed to parse upload response"))
+                }
+            } else {
+                val errorMsg = parseErrorMessage(response.errorBody()?.string())
+                Result.failure(Exception("Video upload failed (${response.code()}): $errorMsg"))
+            }
+        } catch (e: Exception) {
+            ChatLogger.e(TAG, "Exception during uploadVideo", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Multipart audio upload returning audio URL and metadata.
+     */
+    suspend fun uploadAudio(
+        chatId: Int,
+        file: File,
+        mimeType: String = "audio/mpeg",
+        description: String? = null
+    ): Result<AttachmentUploadResponse> = withContext(Dispatchers.IO) {
+        try {
+            if (!file.exists() || !file.canRead()) {
+                return@withContext Result.failure(IllegalArgumentException("File does not exist or cannot be read: ${file.absolutePath}"))
+            }
+
+            val mediaType = mimeType.toMediaTypeOrNull() ?: "audio/*".toMediaTypeOrNull()
+            val requestFile = file.asRequestBody(mediaType)
+            val filePart = MultipartBody.Part.createFormData("file", file.name, requestFile)
+
+            val descBody = description?.toRequestBody("text/plain".toMediaTypeOrNull())
+            val typeBody = "TYPE_AUDIO".toRequestBody("text/plain".toMediaTypeOrNull())
+
+            val response = apiService.uploadAttachment(
+                chatId = chatId,
+                file = filePart,
+                description = descBody,
+                type = typeBody
+            )
+
+            if (response.isSuccessful) {
+                val body = response.body()
+                val parsed = parseAttachmentResponse(body?.data, fallbackFileName = file.name, fallbackFileSize = file.length(), fallbackMime = mimeType)
+                if (parsed != null) {
+                    ChatLogger.d(TAG, "Uploaded audio successfully: url=${parsed.url}")
+                    Result.success(parsed)
+                } else {
+                    Result.failure(IllegalStateException(body?.message ?: "Failed to parse upload response"))
+                }
+            } else {
+                val errorMsg = parseErrorMessage(response.errorBody()?.string())
+                Result.failure(Exception("Audio upload failed (${response.code()}): $errorMsg"))
+            }
+        } catch (e: Exception) {
+            ChatLogger.e(TAG, "Exception during uploadAudio", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Upload photo from raw byte array (useful for compressed camera bitmaps or picker streams).
      */
     suspend fun uploadPhotoBytes(

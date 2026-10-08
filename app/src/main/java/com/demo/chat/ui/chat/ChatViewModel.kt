@@ -167,11 +167,109 @@ class ChatViewModel(
         }
     }
 
+    fun sendVideo(uri: Uri, context: Context) {
+        viewModelScope.launch {
+            try {
+                val file = uriToVideoFile(uri, context) ?: run {
+                    _statusEvent.emit("Failed to process selected video")
+                    return@launch
+                }
+
+                val optimisticMsg = ChatMessage(
+                    chatId = chatId,
+                    senderId = currentUserId,
+                    message = "Video",
+                    type = ChatMessage.TYPE_VIDEO,
+                    mediaUrl = uri.toString(),
+                    createdAt = System.currentTimeMillis().toString(),
+                    sender = chatClient.getCachedUser(),
+                    status = ChatMessage.STATUS_SENDING
+                )
+                _messageList.update { it + optimisticMsg }
+
+                val result = chatClient.uploadVideoAndSendOverSocket(chatId, file)
+                result.onSuccess { confirmedMsg ->
+                    _messageList.update { list ->
+                        list.map { if (it == optimisticMsg) confirmedMsg else it }
+                    }
+                }.onFailure { err ->
+                    _statusEvent.emit("Video upload failed: ${err.localizedMessage}")
+                }
+            } catch (e: Exception) {
+                _statusEvent.emit("Error sending video: ${e.localizedMessage}")
+            }
+        }
+    }
+
+    fun sendAudio(uri: Uri, context: Context) {
+        viewModelScope.launch {
+            try {
+                val file = uriToAudioFile(uri, context) ?: run {
+                    _statusEvent.emit("Failed to process selected audio")
+                    return@launch
+                }
+
+                val optimisticMsg = ChatMessage(
+                    chatId = chatId,
+                    senderId = currentUserId,
+                    message = "Audio",
+                    type = ChatMessage.TYPE_AUDIO,
+                    mediaUrl = uri.toString(),
+                    createdAt = System.currentTimeMillis().toString(),
+                    sender = chatClient.getCachedUser(),
+                    status = ChatMessage.STATUS_SENDING
+                )
+                _messageList.update { it + optimisticMsg }
+
+                val result = chatClient.uploadAudioAndSendOverSocket(chatId, file)
+                result.onSuccess { confirmedMsg ->
+                    _messageList.update { list ->
+                        list.map { if (it == optimisticMsg) confirmedMsg else it }
+                    }
+                }.onFailure { err ->
+                    _statusEvent.emit("Audio upload failed: ${err.localizedMessage}")
+                }
+            } catch (e: Exception) {
+                _statusEvent.emit("Error sending audio: ${e.localizedMessage}")
+            }
+        }
+    }
+
     private fun uriToFile(uri: Uri, context: Context): File? {
         return try {
             val inputStream = context.contentResolver.openInputStream(uri) ?: return null
             val cacheDir = context.cacheDir
             val tempFile = File(cacheDir, "upload_${System.currentTimeMillis()}.jpg")
+            val outputStream = FileOutputStream(tempFile)
+            inputStream.copyTo(outputStream)
+            inputStream.close()
+            outputStream.close()
+            tempFile
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun uriToVideoFile(uri: Uri, context: Context): File? {
+        return try {
+            val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+            val cacheDir = context.cacheDir
+            val tempFile = File(cacheDir, "upload_video_${System.currentTimeMillis()}.mp4")
+            val outputStream = FileOutputStream(tempFile)
+            inputStream.copyTo(outputStream)
+            inputStream.close()
+            outputStream.close()
+            tempFile
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun uriToAudioFile(uri: Uri, context: Context): File? {
+        return try {
+            val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+            val cacheDir = context.cacheDir
+            val tempFile = File(cacheDir, "upload_audio_${System.currentTimeMillis()}.mp3")
             val outputStream = FileOutputStream(tempFile)
             inputStream.copyTo(outputStream)
             inputStream.close()

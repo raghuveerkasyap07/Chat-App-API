@@ -4,6 +4,7 @@ import android.app.Dialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
@@ -47,6 +48,23 @@ class ChatActivity : AppCompatActivity() {
         ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         uri?.let { viewModel.sendPhoto(it, this) }
+    }
+
+    private val videoPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        uri?.let { viewModel.sendVideo(it, this) }
+    }
+
+    private val audioPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            try {
+                contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: Exception) {}
+            viewModel.sendAudio(it, this)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -157,10 +175,33 @@ class ChatActivity : AppCompatActivity() {
             }
         }
 
-        binding.btnAttachPhoto.setOnClickListener {
-            photoPickerLauncher.launch(
-                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-            )
+        binding.btnAttachPhoto.setOnClickListener { view ->
+            val popup = android.widget.PopupMenu(this, view)
+            popup.menu.add(0, 1, 0, "Attach Photo")
+            popup.menu.add(0, 2, 1, "Attach Video")
+            popup.menu.add(0, 3, 2, "Attach Audio")
+            popup.setOnMenuItemClickListener { item ->
+                when (item.itemId) {
+                    1 -> {
+                        photoPickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                        true
+                    }
+                    2 -> {
+                        videoPickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                        )
+                        true
+                    }
+                    3 -> {
+                        audioPickerLauncher.launch(arrayOf("audio/*"))
+                        true
+                    }
+                    else -> false
+                }
+            }
+            popup.show()
         }
 
         // Quick action suggestion chips
