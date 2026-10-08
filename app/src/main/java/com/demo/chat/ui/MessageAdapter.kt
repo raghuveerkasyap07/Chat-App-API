@@ -15,7 +15,10 @@ import com.demo.chat.databinding.ItemChatSentImageBinding
 
 class MessageAdapter(
     private val currentUserId: Int,
-    private val onImageClick: (String) -> Unit
+    private val onImageClick: (String) -> Unit = {},
+    private val onVideoClick: (ChatMessage) -> Unit = {},
+    private val onAudioPlayPauseClick: (ChatMessage) -> Unit = {},
+    private val onFileClick: (ChatMessage) -> Unit = {}
 ) : ListAdapter<ChatMessage, RecyclerView.ViewHolder>(MessageDiffCallback) {
 
     override fun getItemViewType(position: Int): Int {
@@ -57,7 +60,7 @@ class MessageAdapter(
     ) : RecyclerView.ViewHolder(binding.root) {
         fun bind(message: ChatMessage, currentUserId: Int) {
             binding.tvMessageBody.text = message.message ?: ""
-            binding.tvTimestamp.text = message.createdAt ?: ""
+            binding.tvTimestamp.text = formatTimestamp(message.createdAt)
 
             if (message.isSentBy(currentUserId)) {
                 binding.tvStatusTicks.visibility = View.VISIBLE
@@ -79,21 +82,13 @@ class MessageAdapter(
                 binding.tvStatusTicks.visibility = View.GONE
             }
         }
-
-        private fun formatFileSize(bytes: Long): String {
-            if (bytes < 1024) return "$bytes B"
-            val kb = bytes / 1024.0
-            if (kb < 1024) return String.format(java.util.Locale.US, "%.1f KB", kb)
-            val mb = kb / 1024.0
-            return String.format(java.util.Locale.US, "%.1f MB", mb)
-        }
     }
 
     class SentImageViewHolder(
         private val binding: ItemChatSentImageBinding
     ) : RecyclerView.ViewHolder(binding.root) {
         fun bind(message: ChatMessage, onImageClick: (String) -> Unit) {
-            binding.tvTimestamp.text = message.createdAt ?: ""
+            binding.tvTimestamp.text = formatTimestamp(message.createdAt)
             val imageUrl = message.getEffectiveMediaUrl()
 
             if (!imageUrl.isNullOrBlank()) {
@@ -133,7 +128,7 @@ class MessageAdapter(
     ) : RecyclerView.ViewHolder(binding.root) {
         fun bind(message: ChatMessage) {
             binding.tvMessageBody.text = message.message ?: ""
-            binding.tvTimestamp.text = message.createdAt ?: ""
+            binding.tvTimestamp.text = formatTimestamp(message.createdAt)
 
             if (message.sender != null) {
                 binding.tvSenderName.text = message.sender.displayName
@@ -148,7 +143,7 @@ class MessageAdapter(
         private val binding: ItemChatReceivedImageBinding
     ) : RecyclerView.ViewHolder(binding.root) {
         fun bind(message: ChatMessage, onImageClick: (String) -> Unit) {
-            binding.tvTimestamp.text = message.createdAt ?: ""
+            binding.tvTimestamp.text = formatTimestamp(message.createdAt)
 
             if (message.sender != null) {
                 binding.tvSenderName.text = message.sender.displayName
@@ -172,6 +167,10 @@ class MessageAdapter(
                 binding.ivAttachment.visibility = View.GONE
             }
         }
+    }
+
+    fun updateAudioState(url: String?, isPlaying: Boolean, progressPercent: Int, durationFormatted: String) {
+        // Stub for audio playback state update
     }
 
     fun appendMessageIfNotExists(message: ChatMessage) {
@@ -225,5 +224,33 @@ class MessageAdapter(
         override fun areContentsTheSame(oldItem: ChatMessage, newItem: ChatMessage): Boolean {
             return oldItem == newItem
         }
+    }
+}
+
+private fun formatTimestamp(raw: String?): String {
+    if (raw.isNullOrBlank()) return ""
+    return try {
+        val clean = raw.replace("Z", "")
+        if (clean.contains("T")) {
+            val parts = clean.split("T")
+            if (parts.size == 2) {
+                val timePart = parts[1].substringBefore(".") // e.g. "10:58:35"
+                val tParts = timePart.split(":")
+                if (tParts.size >= 2) {
+                    val h = tParts[0].toIntOrNull() ?: 0
+                    val m = tParts[1]
+                    val hour12 = when {
+                        h == 0 -> 12
+                        h > 12 -> h - 12
+                        else -> h
+                    }
+                    val amPm = if (h >= 12) "PM" else "AM"
+                    return String.format(java.util.Locale.getDefault(), "%d:%s %s", hour12, m, amPm)
+                }
+            }
+        }
+        raw
+    } catch (_: Throwable) {
+        raw
     }
 }

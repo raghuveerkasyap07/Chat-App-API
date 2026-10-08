@@ -299,8 +299,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        binding.btnAttachFile.setOnClickListener {
-            showAttachmentPickerBottomSheet()
+        binding.btnAttach.setOnClickListener {
+            Toast.makeText(this, "Attachment action (Out of Ajit scope)", Toast.LENGTH_SHORT).show()
         }
 
         binding.btnAttachPhoto.setOnClickListener {

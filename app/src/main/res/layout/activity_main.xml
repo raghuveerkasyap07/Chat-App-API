@@ -180,7 +180,7 @@
         app:layout_constraintStart_toStartOf="parent">
 
         <ImageButton
-            android:id="@+id/btnAttachFile"
+            android:id="@+id/btnAttach"
             android:layout_width="44dp"
             android:layout_height="44dp"
             android:background="?attr/selectableItemBackgroundBorderless"
@@ -194,7 +194,7 @@
             android:layout_height="44dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Attach Photo"
-            android:src="@drawable/ic_camera"
+            android:src="@drawable/ic_photo"
             app:tint="@color/whatsapp_green" />
 
         <EditText
