@@ -25,6 +25,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
+import coil.load
 import com.demo.chat.ChatApplication
 import com.demo.chat.R
 import com.demo.chat.data.model.ChatMessage
@@ -231,6 +232,29 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun showImagePreviewDialog(imageUrl: String) {
+        if (isFinishing || isDestroyed) return
+        try {
+            val dialog = android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+            val dialogBinding = com.demo.chat.databinding.DialogImagePreviewBinding.inflate(layoutInflater)
+            dialog.setContentView(dialogBinding.root)
+
+            dialogBinding.ivFullscreenPreview.load(imageUrl) {
+                crossfade(true)
+                placeholder(android.R.drawable.ic_menu_gallery)
+                error(android.R.drawable.ic_dialog_alert)
+            }
+
+            dialogBinding.btnClosePreview.setOnClickListener {
+                dialog.dismiss()
+            }
+
+            dialog.show()
+        } catch (e: Throwable) {
+            Toast.makeText(this, "Failed to open image preview: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun setupListeners() {
         binding.etMessageInput.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI
         binding.etMessageInput.setOnClickListener {
@@ -300,6 +324,19 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnSelectContact.setOnClickListener {
             showContactsBottomSheet()
+        }
+
+        binding.tvChatPartnerName.setOnLongClickListener {
+            val chatId = viewModel.activeChatId.value.let { if (it > 0) it else 1 }
+            com.demo.chat.utils.NotificationHelper.showChatNotification(
+                this@MainActivity,
+                "Test Local Notification",
+                "This is a local notification test with media preview!",
+                chatId,
+                "https://picsum.photos/300/200"
+            )
+            Toast.makeText(this@MainActivity, "Test local notification triggered!", Toast.LENGTH_SHORT).show()
+            true
         }
 
         binding.btnLogout.setOnClickListener {
