@@ -161,6 +161,76 @@ class ChatClient private constructor(
         return Result.success(chatMessage)
     }
 
+    suspend fun uploadVideoAndSendOverSocket(
+        chatId: Int,
+        videoFile: File,
+        caption: String = "",
+        mimeType: String = "video/mp4"
+    ): Result<ChatMessage> {
+        val uploadResult = media.uploadVideo(chatId, videoFile, mimeType, caption)
+        if (uploadResult.isFailure) {
+            return Result.failure(uploadResult.exceptionOrNull() ?: Exception("Video upload failed"))
+        }
+
+        val attachment = uploadResult.getOrThrow()
+
+        val sentOverSocket = socket.sendVideoMessage(
+            chatId = chatId,
+            videoUrl = attachment.url,
+            caption = caption,
+            metadata = attachment.metadata
+        )
+
+        val chatMessage = ChatMessage(
+            chatId = chatId,
+            senderId = session.getUserId(),
+            message = caption,
+            type = ChatMessage.TYPE_VIDEO,
+            mediaUrl = attachment.url,
+            metadata = attachment.metadata,
+            createdAt = System.currentTimeMillis().toString(),
+            sender = session.getUser(),
+            status = if (sentOverSocket) ChatMessage.STATUS_SENT else ChatMessage.STATUS_SENDING
+        )
+
+        return Result.success(chatMessage)
+    }
+
+    suspend fun uploadAudioAndSendOverSocket(
+        chatId: Int,
+        audioFile: File,
+        caption: String = "",
+        mimeType: String = "audio/mpeg"
+    ): Result<ChatMessage> {
+        val uploadResult = media.uploadAudio(chatId, audioFile, mimeType, caption)
+        if (uploadResult.isFailure) {
+            return Result.failure(uploadResult.exceptionOrNull() ?: Exception("Audio upload failed"))
+        }
+
+        val attachment = uploadResult.getOrThrow()
+
+        val sentOverSocket = socket.sendAudioMessage(
+            chatId = chatId,
+            audioUrl = attachment.url,
+            caption = caption,
+            metadata = attachment.metadata
+        )
+
+        val chatMessage = ChatMessage(
+            chatId = chatId,
+            senderId = session.getUserId(),
+            message = caption,
+            type = ChatMessage.TYPE_AUDIO,
+            mediaUrl = attachment.url,
+            metadata = attachment.metadata,
+            createdAt = System.currentTimeMillis().toString(),
+            sender = session.getUser(),
+            status = if (sentOverSocket) ChatMessage.STATUS_SENT else ChatMessage.STATUS_SENDING
+        )
+
+        return Result.success(chatMessage)
+    }
+
     // --- WebSocket Operations ---
 
     fun connectWebSocket(chatId: Int? = null) {

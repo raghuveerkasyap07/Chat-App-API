@@ -407,6 +407,94 @@ class WebSocketClientManager(
         }
     }
 
+    fun sendVideoMessage(
+        chatId: Int,
+        videoUrl: String,
+        caption: String = "",
+        metadata: MediaMetadata? = null
+    ): Boolean {
+        if (videoUrl.isBlank()) return false
+        val currentUserId = sessionManager.getUserId()
+
+        return if (isSocketIo.get()) {
+            val payload = JsonObject().apply {
+                addProperty("chatId", chatId)
+                addProperty("chat_id", chatId)
+                addProperty("senderId", currentUserId)
+                addProperty("sender_id", currentUserId)
+                addProperty("message", caption.trim())
+                addProperty("mediaUrl", videoUrl)
+                addProperty("media_url", videoUrl)
+                addProperty("imageUrl", videoUrl)
+                addProperty("type", com.demo.chat.data.model.ChatMessage.TYPE_VIDEO)
+                addProperty("timestamp", System.currentTimeMillis())
+                metadata?.let { add("metadata", gson.toJsonTree(it)) }
+            }
+            sendFrame("""42["send_video",$payload]""")
+        } else {
+            val payload = JsonObject().apply {
+                addProperty("event", "send_video")
+                addProperty("type", com.demo.chat.data.model.ChatMessage.TYPE_VIDEO)
+                addProperty("chatId", chatId)
+                addProperty("chat_id", chatId)
+                addProperty("senderId", currentUserId)
+                addProperty("sender_id", currentUserId)
+                addProperty("message", caption.trim())
+                addProperty("mediaUrl", videoUrl)
+                addProperty("media_url", videoUrl)
+                addProperty("imageUrl", videoUrl)
+                addProperty("image_url", videoUrl)
+                addProperty("timestamp", System.currentTimeMillis())
+                metadata?.let { add("metadata", gson.toJsonTree(it)) }
+            }
+            sendFrame(payload.toString())
+        }
+    }
+
+    fun sendAudioMessage(
+        chatId: Int,
+        audioUrl: String,
+        caption: String = "",
+        metadata: MediaMetadata? = null
+    ): Boolean {
+        if (audioUrl.isBlank()) return false
+        val currentUserId = sessionManager.getUserId()
+
+        return if (isSocketIo.get()) {
+            val payload = JsonObject().apply {
+                addProperty("chatId", chatId)
+                addProperty("chat_id", chatId)
+                addProperty("senderId", currentUserId)
+                addProperty("sender_id", currentUserId)
+                addProperty("message", caption.trim())
+                addProperty("mediaUrl", audioUrl)
+                addProperty("media_url", audioUrl)
+                addProperty("imageUrl", audioUrl)
+                addProperty("type", com.demo.chat.data.model.ChatMessage.TYPE_AUDIO)
+                addProperty("timestamp", System.currentTimeMillis())
+                metadata?.let { add("metadata", gson.toJsonTree(it)) }
+            }
+            sendFrame("""42["send_audio",$payload]""")
+        } else {
+            val payload = JsonObject().apply {
+                addProperty("event", "send_audio")
+                addProperty("type", com.demo.chat.data.model.ChatMessage.TYPE_AUDIO)
+                addProperty("chatId", chatId)
+                addProperty("chat_id", chatId)
+                addProperty("senderId", currentUserId)
+                addProperty("sender_id", currentUserId)
+                addProperty("message", caption.trim())
+                addProperty("mediaUrl", audioUrl)
+                addProperty("media_url", audioUrl)
+                addProperty("imageUrl", audioUrl)
+                addProperty("image_url", audioUrl)
+                addProperty("timestamp", System.currentTimeMillis())
+                metadata?.let { add("metadata", gson.toJsonTree(it)) }
+            }
+            sendFrame(payload.toString())
+        }
+    }
+
     /**
      * Socket event: ping_pong
      */
