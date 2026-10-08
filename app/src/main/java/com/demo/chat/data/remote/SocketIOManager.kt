@@ -125,13 +125,30 @@ class SocketIOManager(
                 val status = data.optString("status", ChatMessage.STATUS_SENT)
                 val timestamp = data.optString("timestamp", data.optString("created_at", System.currentTimeMillis().toString()))
 
+                val mediaType = when {
+                    data.has("mediaType") && !data.isNull("mediaType") -> data.optString("mediaType").lowercase()
+                    data.has("media_type") && !data.isNull("media_type") -> data.optString("media_type").lowercase()
+                    else -> null
+                }
+                val rawType = data.optString("type", "").takeIf { it.isNotBlank() }
+                val computedType = when {
+                    rawType != null -> rawType
+                    mediaType == "video" -> ChatMessage.TYPE_VIDEO
+                    mediaType == "audio" -> ChatMessage.TYPE_AUDIO
+                    mediaType == "file" -> ChatMessage.TYPE_FILE
+                    mediaType == "image" -> ChatMessage.TYPE_IMAGE
+                    !mediaUrl.isNullOrBlank() -> ChatMessage.determineTypeFromUrl(mediaUrl)
+                    else -> ChatMessage.TYPE_TEXT
+                }
+
                 val chatMsg = ChatMessage(
                     id = id,
                     chatId = msgChatId,
                     senderId = senderId,
                     message = messageText,
-                    type = if (!mediaUrl.isNullOrBlank()) ChatMessage.TYPE_IMAGE else ChatMessage.TYPE_TEXT,
+                    type = computedType,
                     mediaUrl = mediaUrl,
+                    mediaType = mediaType,
                     createdAt = timestamp,
                     sender = if (senderId > 0) User(id = senderId, name = senderName, email = "") else null,
                     status = status
@@ -259,7 +276,8 @@ class SocketIOManager(
         chatId: Int,
         recipientId: Int,
         message: String,
-        mediaUrl: String? = null
+        mediaUrl: String? = null,
+        mediaType: String? = null
     ): Boolean {
         if (chatId <= 0) return false
         val s = socket ?: return false
@@ -271,9 +289,12 @@ class SocketIOManager(
                 }
                 put("message", message)
                 put("mediaUrl", mediaUrl ?: JSONObject.NULL)
+                if (!mediaType.isNullOrBlank()) {
+                    put("mediaType", mediaType)
+                }
             }
             s.emit("send_message", messageData)
-            ChatLogger.d(TAG, "Emitted send_message: chatId=$chatId, recipientId=$recipientId")
+            ChatLogger.d(TAG, "Emitted send_message: chatId=$chatId, recipientId=$recipientId, mediaType=$mediaType")
             true
         } catch (e: Throwable) {
             ChatLogger.e(TAG, "Failed to emit send_message", e)

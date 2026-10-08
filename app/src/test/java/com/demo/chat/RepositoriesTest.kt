@@ -278,4 +278,104 @@ class RepositoriesTest {
         assertEquals("POST", recordedRequest.method)
         assertTrue(recordedRequest.getHeader("Content-Type")!!.startsWith("multipart/form-data"))
     }
+
+    @Test
+    fun testMultipartVideoAndAudioUpload() = runBlocking {
+        val videoResponseJson = """
+            {
+                "success": true,
+                "message": "Video uploaded successfully",
+                "mediaUrl": "http://localhost:5000/uploads/test_video.mp4",
+                "mediaType": "video",
+                "data": {
+                    "url": "http://localhost:5000/uploads/test_video.mp4",
+                    "file_name": "test_video.mp4",
+                    "file_size": 1048576,
+                    "mime_type": "video/mp4",
+                    "media_type": "video"
+                }
+            }
+        """.trimIndent()
+
+        mockWebServer.enqueue(MockResponse().setResponseCode(200).setBody(videoResponseJson))
+
+        val tempVideoFile = File.createTempFile("sample_video", ".mp4").apply {
+            writeBytes(ByteArray(1024) { 2.toByte() })
+            deleteOnExit()
+        }
+
+        val videoResult = mediaRepository.uploadVideo(chatId = 101, file = tempVideoFile)
+        assertTrue(videoResult.isSuccess)
+        val videoData = videoResult.getOrThrow()
+        assertEquals("http://localhost:5000/uploads/test_video.mp4", videoData.url)
+        assertEquals("video", videoData.mediaType)
+
+        val audioResponseJson = """
+            {
+                "success": true,
+                "message": "Audio uploaded successfully",
+                "mediaUrl": "http://localhost:5000/uploads/test_audio.mp3",
+                "mediaType": "audio",
+                "data": {
+                    "url": "http://localhost:5000/uploads/test_audio.mp3",
+                    "file_name": "test_audio.mp3",
+                    "file_size": 512,
+                    "mime_type": "audio/mpeg",
+                    "media_type": "audio"
+                }
+            }
+        """.trimIndent()
+
+        mockWebServer.enqueue(MockResponse().setResponseCode(200).setBody(audioResponseJson))
+
+        val tempAudioFile = File.createTempFile("sample_audio", ".mp3").apply {
+            writeBytes(ByteArray(512) { 3.toByte() })
+            deleteOnExit()
+        }
+
+        val audioResult = mediaRepository.uploadAudio(chatId = 101, file = tempAudioFile)
+        assertTrue(audioResult.isSuccess)
+        val audioData = audioResult.getOrThrow()
+        assertEquals("http://localhost:5000/uploads/test_audio.mp3", audioData.url)
+        assertEquals("audio", audioData.mediaType)
+    }
+
+    @Test
+    fun testChatMessageMediaTypeClassification() {
+        val videoMsg = ChatMessage(mediaUrl = "http://example.com/uploads/clip.mp4")
+        assertTrue(videoMsg.isVideo)
+        assertFalse(videoMsg.isImage)
+        assertFalse(videoMsg.isAudio)
+        assertFalse(videoMsg.isFile)
+        assertEquals(ChatMessage.TYPE_VIDEO, videoMsg.effectiveType)
+
+        val audioMsg = ChatMessage(mediaUrl = "http://example.com/uploads/recording.mp3")
+        assertTrue(audioMsg.isAudio)
+        assertFalse(audioMsg.isImage)
+        assertFalse(audioMsg.isVideo)
+        assertFalse(audioMsg.isFile)
+        assertEquals(ChatMessage.TYPE_AUDIO, audioMsg.effectiveType)
+
+        val fileMsg = ChatMessage(mediaUrl = "http://example.com/uploads/document.pdf")
+        assertTrue(fileMsg.isFile)
+        assertFalse(fileMsg.isImage)
+        assertFalse(fileMsg.isVideo)
+        assertFalse(fileMsg.isAudio)
+        assertEquals(ChatMessage.TYPE_FILE, fileMsg.effectiveType)
+
+        val imageMsg = ChatMessage(mediaUrl = "http://example.com/uploads/photo.jpg")
+        assertTrue(imageMsg.isImage)
+        assertFalse(imageMsg.isVideo)
+        assertFalse(imageMsg.isAudio)
+        assertFalse(imageMsg.isFile)
+        assertEquals(ChatMessage.TYPE_IMAGE, imageMsg.effectiveType)
+
+        val textMsg = ChatMessage(message = "Hello world")
+        assertTrue(textMsg.isText)
+        assertFalse(textMsg.isImage)
+        assertFalse(textMsg.isVideo)
+        assertFalse(textMsg.isAudio)
+        assertFalse(textMsg.isFile)
+        assertEquals(ChatMessage.TYPE_TEXT, textMsg.effectiveType)
+    }
 }

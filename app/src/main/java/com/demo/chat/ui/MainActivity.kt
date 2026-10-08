@@ -1,5 +1,6 @@
 package com.demo.chat.ui
 
+import android.app.Dialog
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -10,6 +11,7 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.widget.MediaController
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,10 +27,14 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.demo.chat.ChatApplication
 import com.demo.chat.R
+import com.demo.chat.data.model.ChatMessage
 import com.demo.chat.data.model.ConnectionState
 import com.demo.chat.databinding.ActivityMainBinding
+import com.demo.chat.databinding.DialogAttachmentPickerBinding
 import com.demo.chat.databinding.DialogContactsBinding
+import com.demo.chat.databinding.DialogVideoPlayerBinding
 import com.demo.chat.sdk.core.ChatClient
+import com.demo.chat.utils.AudioPlayerManager
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
@@ -53,6 +59,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var viewModel: MainViewModel
     private lateinit var messageAdapter: MessageAdapter
+    private val audioPlayerManager = AudioPlayerManager()
 
     private val typingHandler = Handler(Looper.getMainLooper())
     private val stopTypingRunnable = Runnable {
@@ -66,6 +73,24 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let { handleSelectedPhoto(it) }
+    }
+
+    private val videoPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { handleSelectedVideo(it) }
+    }
+
+    private val audioPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { handleSelectedAudio(it) }
+    }
+
+    private val filePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { handleSelectedFile(it) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -108,6 +133,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        audioPlayerManager.pause()
         if (::viewModel.isInitialized) {
             val chatId = viewModel.activeChatId.value
             typingHandler.removeCallbacks(stopTypingRunnable)
@@ -185,7 +211,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupRecyclerView(currentUserId: Int) {
-        messageAdapter = MessageAdapter(currentUserId)
+        messageAdapter = MessageAdapter(
+            currentUserId = currentUserId,
+            onVideoClick = { message ->
+                playVideoMessage(message)
+            },
+            onAudioPlayPauseClick = { message ->
+                playAudioMessage(message)
+            },
+            onFileClick = { message ->
+                openFileMessage(message)
+            }
+        )
         binding.recyclerViewMessages.apply {
             layoutManager = LinearLayoutManager(this@MainActivity).apply {
                 stackFromEnd = true
@@ -238,6 +275,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        binding.btnAttachFile.setOnClickListener {
+            showAttachmentPickerBottomSheet()
+        }
+
         binding.btnAttachPhoto.setOnClickListener {
             val chatId = viewModel.activeChatId.value
             if (chatId <= 0) {
@@ -250,6 +291,11 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Throwable) {
                 Toast.makeText(this, "Unable to open photo picker: ${e.message}", Toast.LENGTH_SHORT).show()
             }
+        }
+
+        binding.btnAttachPhoto.setOnLongClickListener {
+            showAttachmentPickerBottomSheet()
+            true
         }
 
         binding.btnSelectContact.setOnClickListener {
@@ -403,6 +449,36 @@ class MainActivity : AppCompatActivity() {
                         binding.progressBar.visibility = if (loading) View.VISIBLE else View.GONE
                     }
                 }
+
+                // 8. Observe Audio Player Manager playback state
+                launch {
+                    audioPlayerManager.playbackState.collectLatest { state ->
+                        if (isFinishing || isDestroyed) return@collectLatest
+                        val durMs = state.durationMs
+                        val posMs = state.currentPositionMs
+                        val progress = if (durMs > 0) (posMs * 100 / durMs) else 0
+                        val durSec = (durMs / 1000) % 60
+                        val durMin = durMs / 1000 / 60
+                        val posSec = (posMs / 1000) % 60
+                        val posMin = posMs / 1000 / 60
+                        val formatted = if (durMs > 0) {
+                            String.format(java.util.Locale.US, "%02d:%02d / %02d:%02d", posMin, posSec, durMin, durSec)
+                        } else {
+                            "00:00"
+                        }
+
+                        messageAdapter.updateAudioState(
+                            url = state.url,
+                            isPlaying = state.isPlaying,
+                            progressPercent = progress,
+                            durationFormatted = formatted
+                        )
+
+                        if (!state.error.isNullOrBlank()) {
+                            Toast.makeText(this@MainActivity, state.error, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
             }
         }
     }
@@ -434,6 +510,63 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun showAttachmentPickerBottomSheet() {
+        if (isFinishing || isDestroyed) return
+
+        val chatId = viewModel.activeChatId.value
+        if (chatId <= 0) {
+            Toast.makeText(this, "Please select a contact before attaching media", Toast.LENGTH_SHORT).show()
+            showContactsBottomSheet()
+            return
+        }
+
+        try {
+            val dialog = BottomSheetDialog(this)
+            val pickerBinding = DialogAttachmentPickerBinding.inflate(layoutInflater)
+            dialog.setContentView(pickerBinding.root)
+
+            pickerBinding.btnOptionPhoto.setOnClickListener {
+                dialog.dismiss()
+                try {
+                    photoPickerLauncher.launch("image/*")
+                } catch (e: Throwable) {
+                    Toast.makeText(this, "Unable to open photo picker: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            pickerBinding.btnOptionVideo.setOnClickListener {
+                dialog.dismiss()
+                try {
+                    videoPickerLauncher.launch("video/*")
+                } catch (e: Throwable) {
+                    Toast.makeText(this, "Unable to open video picker: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            pickerBinding.btnOptionAudio.setOnClickListener {
+                dialog.dismiss()
+                try {
+                    audioPickerLauncher.launch("audio/*")
+                } catch (e: Throwable) {
+                    Toast.makeText(this, "Unable to open audio picker: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            pickerBinding.btnOptionFile.setOnClickListener {
+                dialog.dismiss()
+                try {
+                    filePickerLauncher.launch("*/*")
+                } catch (e: Throwable) {
+                    Toast.makeText(this, "Unable to open file picker: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            dialog.show()
+        } catch (e: Throwable) {
+            Toast.makeText(this, "Failed to open attachment options: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun handleSelectedPhoto(uri: Uri) {
         try {
             val chatId = viewModel.activeChatId.value
@@ -456,9 +589,165 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun handleSelectedVideo(uri: Uri) {
+        try {
+            val chatId = viewModel.activeChatId.value
+            if (chatId <= 0) {
+                Toast.makeText(this, "Please select a contact before attaching videos", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val tempFile = copyUriToTempFile(uri)
+            if (tempFile != null) {
+                viewModel.uploadAndSendVideo(
+                    chatId = chatId,
+                    videoFile = tempFile,
+                    caption = "Video Attachment"
+                )
+            } else {
+                Toast.makeText(this, "Failed to load selected video", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Throwable) {
+            Toast.makeText(this, "Error processing video: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun handleSelectedAudio(uri: Uri) {
+        try {
+            val chatId = viewModel.activeChatId.value
+            if (chatId <= 0) {
+                Toast.makeText(this, "Please select a contact before attaching audio", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val tempFile = copyUriToTempFile(uri)
+            if (tempFile != null) {
+                viewModel.uploadAndSendAudio(
+                    chatId = chatId,
+                    audioFile = tempFile,
+                    caption = "Audio Attachment"
+                )
+            } else {
+                Toast.makeText(this, "Failed to load selected audio", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Throwable) {
+            Toast.makeText(this, "Error processing audio: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun handleSelectedFile(uri: Uri) {
+        try {
+            val chatId = viewModel.activeChatId.value
+            if (chatId <= 0) {
+                Toast.makeText(this, "Please select a contact before attaching files", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val tempFile = copyUriToTempFile(uri)
+            if (tempFile != null) {
+                val fileName = getFileNameFromUri(uri) ?: tempFile.name
+                viewModel.uploadAndSendFile(
+                    chatId = chatId,
+                    file = tempFile,
+                    caption = fileName
+                )
+            } else {
+                Toast.makeText(this, "Failed to load selected file", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Throwable) {
+            Toast.makeText(this, "Error processing file: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun playAudioMessage(message: ChatMessage) {
+        val url = message.getEffectiveMediaUrl() ?: return
+        audioPlayerManager.play(url)
+    }
+
+    private fun playVideoMessage(message: ChatMessage) {
+        val url = message.getEffectiveMediaUrl() ?: return
+        showVideoPlayerDialog(url, message.message ?: "Video")
+    }
+
+    private fun showVideoPlayerDialog(videoUrl: String, title: String) {
+        if (isFinishing || isDestroyed) return
+        try {
+            val dialog = Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+            val videoBinding = DialogVideoPlayerBinding.inflate(layoutInflater)
+            dialog.setContentView(videoBinding.root)
+
+            videoBinding.tvVideoTitle.text = title.ifBlank { "Video Playback" }
+
+            val mediaController = MediaController(this)
+            mediaController.setAnchorView(videoBinding.videoView)
+            videoBinding.videoView.setMediaController(mediaController)
+
+            videoBinding.videoView.setVideoURI(Uri.parse(videoUrl))
+            videoBinding.videoLoadingProgress.visibility = View.VISIBLE
+
+            videoBinding.videoView.setOnPreparedListener { mp ->
+                videoBinding.videoLoadingProgress.visibility = View.GONE
+                mp.start()
+            }
+
+            videoBinding.videoView.setOnErrorListener { _, what, extra ->
+                videoBinding.videoLoadingProgress.visibility = View.GONE
+                Toast.makeText(this, "Failed to play video in-app (code $what). Try external player.", Toast.LENGTH_SHORT).show()
+                true
+            }
+
+            videoBinding.btnCloseVideo.setOnClickListener {
+                try {
+                    videoBinding.videoView.stopPlayback()
+                } catch (_: Throwable) {}
+                dialog.dismiss()
+            }
+
+            videoBinding.btnOpenExternalVideo.setOnClickListener {
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(Uri.parse(videoUrl), "video/*")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(intent)
+                } catch (e: Throwable) {
+                    Toast.makeText(this, "No external video player found: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            dialog.setOnDismissListener {
+                try {
+                    videoBinding.videoView.stopPlayback()
+                } catch (_: Throwable) {}
+            }
+
+            dialog.show()
+        } catch (e: Throwable) {
+            Toast.makeText(this, "Unable to open video player: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openFileMessage(message: ChatMessage) {
+        val url = message.getEffectiveMediaUrl() ?: return
+        try {
+            val uri = Uri.parse(url)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, message.metadata?.mimeType ?: "*/*")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        } catch (_: Throwable) {
+            try {
+                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(browserIntent)
+            } catch (e: Throwable) {
+                Toast.makeText(this, "Unable to open file: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     private fun copyUriToTempFile(uri: Uri): File? {
         return try {
-            val fileName = getFileNameFromUri(uri) ?: "upload_${System.currentTimeMillis()}.jpg"
+            val fileName = getFileNameFromUri(uri) ?: "upload_${System.currentTimeMillis()}.tmp"
             val file = File(cacheDir, fileName)
             contentResolver.openInputStream(uri)?.use { input ->
                 FileOutputStream(file).use { output ->
@@ -499,6 +788,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        audioPlayerManager.release()
         typingHandler.removeCallbacks(stopTypingRunnable)
         if (::viewModel.isInitialized) {
             val chatId = viewModel.activeChatId.value

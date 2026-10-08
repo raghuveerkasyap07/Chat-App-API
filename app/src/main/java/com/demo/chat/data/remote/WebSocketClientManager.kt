@@ -583,11 +583,20 @@ class WebSocketClientManager(
                 else -> null
             }
 
+            val mediaType = when {
+                obj.has("mediaType") && !obj.get("mediaType").isJsonNull -> obj.get("mediaType").asString.lowercase()
+                obj.has("media_type") && !obj.get("media_type").isJsonNull -> obj.get("media_type").asString.lowercase()
+                else -> null
+            }
+
             val rawType = obj.get("type")?.asString
             val type = when {
-                rawType?.equals(ChatMessage.TYPE_IMAGE, ignoreCase = true) == true -> ChatMessage.TYPE_IMAGE
+                rawType?.equals(ChatMessage.TYPE_VIDEO, ignoreCase = true) == true || mediaType == "video" -> ChatMessage.TYPE_VIDEO
+                rawType?.equals(ChatMessage.TYPE_AUDIO, ignoreCase = true) == true || mediaType == "audio" -> ChatMessage.TYPE_AUDIO
+                rawType?.equals(ChatMessage.TYPE_FILE, ignoreCase = true) == true || mediaType == "file" -> ChatMessage.TYPE_FILE
+                rawType?.equals(ChatMessage.TYPE_IMAGE, ignoreCase = true) == true || mediaType == "image" -> ChatMessage.TYPE_IMAGE
                 defaultEvent.equals(SocketEvents.SEND_IMAGE, ignoreCase = true) -> ChatMessage.TYPE_IMAGE
-                !imageUrl.isNullOrBlank() -> ChatMessage.TYPE_IMAGE
+                !imageUrl.isNullOrBlank() -> ChatMessage.determineTypeFromUrl(imageUrl)
                 else -> ChatMessage.TYPE_TEXT
             }
 
@@ -631,6 +640,7 @@ class WebSocketClientManager(
                 message = messageText,
                 type = type,
                 mediaUrl = imageUrl,
+                mediaType = mediaType,
                 metadata = metadata,
                 createdAt = createdAt,
                 sender = sender,

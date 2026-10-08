@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/messageContainer"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -26,6 +27,7 @@
             android:textStyle="bold"
             android:visibility="gone" />
 
+        <!-- Photo Attachment -->
         <ImageView
             android:id="@+id/ivAttachment"
             android:layout_width="220dp"
@@ -35,6 +37,148 @@
             android:contentDescription="Photo attachment"
             android:scaleType="centerCrop"
             android:visibility="gone" />
+
+        <!-- Video Message Container -->
+        <FrameLayout
+            android:id="@+id/videoContainer"
+            android:layout_width="220dp"
+            android:layout_height="180dp"
+            android:layout_marginBottom="4dp"
+            android:background="#1E1E1E"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/ivVideoThumbnail"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:adjustViewBounds="true"
+                android:contentDescription="Video thumbnail"
+                android:scaleType="centerCrop" />
+
+            <ImageView
+                android:id="@+id/ivVideoPlayOverlay"
+                android:layout_width="54dp"
+                android:layout_height="54dp"
+                android:layout_gravity="center"
+                android:background="@drawable/ic_launcher_background"
+                android:backgroundTint="#AA000000"
+                android:padding="12dp"
+                android:src="@drawable/ic_play"
+                app:tint="@color/white" />
+
+            <TextView
+                android:id="@+id/tvVideoDuration"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|end"
+                android:layout_margin="8dp"
+                android:background="#88000000"
+                android:paddingHorizontal="6dp"
+                android:paddingVertical="2dp"
+                android:text="Video"
+                android:textColor="@color/white"
+                android:textSize="11sp" />
+        </FrameLayout>
+
+        <!-- Audio Message Container -->
+        <LinearLayout
+            android:id="@+id/audioContainer"
+            android:layout_width="240dp"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="4dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="6dp"
+            android:visibility="gone">
+
+            <ImageButton
+                android:id="@+id/btnAudioPlayPause"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="@drawable/ic_launcher_background"
+                android:backgroundTint="@color/whatsapp_green"
+                android:contentDescription="Play Audio"
+                android:padding="8dp"
+                android:src="@drawable/ic_play"
+                app:tint="@color/white" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <ProgressBar
+                    android:id="@+id/audioProgressBar"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="100"
+                    android:progress="0"
+                    android:progressTint="@color/whatsapp_green" />
+
+                <TextView
+                    android:id="@+id/tvAudioDuration"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="00:00"
+                    android:textColor="@color/gray_text"
+                    android:textSize="11sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- File Message Container -->
+        <LinearLayout
+            android:id="@+id/fileContainer"
+            android:layout_width="240dp"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="4dp"
+            android:background="#15000000"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="10dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/ivFileIcon"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="@drawable/ic_launcher_background"
+                android:backgroundTint="#5F66CD"
+                android:padding="8dp"
+                android:src="@drawable/ic_file"
+                app:tint="@color/white" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvFileName"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="middle"
+                    android:maxLines="1"
+                    android:text="Document"
+                    android:textColor="@color/black"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvFileSize"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="Tap to open"
+                    android:textColor="@color/gray_text"
+                    android:textSize="11sp" />
+            </LinearLayout>
+        </LinearLayout>
 
         <TextView
             android:id="@+id/tvMessageBody"

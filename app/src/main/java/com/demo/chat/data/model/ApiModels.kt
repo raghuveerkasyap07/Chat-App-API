@@ -40,7 +40,9 @@ data class SendMessageRequest(
     val message: String,
     val type: String = ChatMessage.TYPE_TEXT,
     @SerializedName("media_url", alternate = ["mediaUrl"])
-    val mediaUrl: String? = null
+    val mediaUrl: String? = null,
+    @SerializedName("media_type", alternate = ["mediaType"])
+    val mediaType: String? = null
 )
 
 data class AttachmentUploadResponse(
@@ -51,6 +53,8 @@ data class AttachmentUploadResponse(
     val fileSize: Long? = null,
     @SerializedName("mime_type", alternate = ["mimeType"])
     val mimeType: String? = null,
+    @SerializedName("media_type", alternate = ["mediaType"])
+    val mediaType: String? = null,
     val metadata: MediaMetadata? = null
 )
 
