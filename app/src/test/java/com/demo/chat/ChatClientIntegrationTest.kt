@@ -69,7 +69,11 @@ class ChatClientIntegrationTest {
     @After
     fun tearDown() {
         chatClient.disconnectWebSocket()
-        mockWebServer.shutdown()
+        try {
+            mockWebServer.shutdown()
+        } catch (e: Exception) {
+            // Ignored during test cleanup
+        }
     }
 
     private fun awaitConnected(client: ChatClient, timeoutSec: Long = 5) {
